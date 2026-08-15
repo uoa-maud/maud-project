@@ -549,9 +549,9 @@ const HRS_TARGETS=[
   {key:'simulation', label:'Simulation',           min:null,max:40,   showBar:true},
   {key:'testing',    label:'Testing Total',        min:200, max:null, showBar:true},
   {key:'observed',   label:'Observed Total',       min:null,max:null, showBar:false},
-  {key:'adultDx',    label:'Adult Diag Total',     min:40,  max:null, showBar:true},
+  {key:'adultDxTest',label:'Adult Diag (Testing)', min:40,  max:null, showBar:true},
   {key:'adultRehab', label:'Adult Rehab Total',    min:10,  max:null, showBar:true},
-  {key:'paedDx',     label:'Paeds Diag Total',     min:40,  max:null, showBar:true},
+  {key:'paedDxTest', label:'Paeds Diag (Testing)', min:40,  max:null, showBar:true},
   {key:'paedRehab',  label:'Paeds Rehab Total',    min:10,  max:null, showBar:true},
   {key:'rehab',      label:'Rehab Total',          min:80,  max:null, showBar:true},
   {key:'orl',        label:'ORL Total',            min:null,max:null, showBar:false},
@@ -570,6 +570,7 @@ function calcTotals(hrs){
   var total     = adultDx+paedDx+adultRehab+paedRehab+other;
   return {total:total, testing:testing, observed:observed,
           adultDx:adultDx, paedDx:paedDx,
+          adultDxTest:hrs.adultDxTest||0, paedDxTest:hrs.paedDxTest||0,
           adultRehab:adultRehab, paedRehab:paedRehab, rehab:adultRehab+paedRehab,
           simulation:hrs.simulation||0, orl:hrs.orl||0, slt:hrs.slt||0,
           supervision:hrs.supervision||0};
