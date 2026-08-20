@@ -1545,9 +1545,18 @@ function submitForm() {
     })
     .catch(function(e){
       document.getElementById('submitBtn').disabled=false;
-      if(e.message === 'Supervisor access required' || e.message === 'Unauthorised'){
-        statusEl.className='status-msg err'; statusEl.textContent='Your session expired — please sign in again below.';
-        showReauthOverlay();
+      if(isAuthErrorMsg(e.message) && !_authRetrying){
+        _authRetrying=true;
+        statusEl.className='status-msg'; statusEl.textContent='Session expired — signing back in…';
+        trySilentReauth(function(){
+          _authRetrying=false;
+          statusEl.textContent='Signed back in — resubmitting…';
+          submitForm();
+        }, function(){
+          _authRetrying=false;
+          statusEl.className='status-msg err'; statusEl.textContent='Your session expired — please sign in again below.';
+          showReauthOverlay();
+        });
         return;
       }
       statusEl.className='status-msg err'; statusEl.textContent='Error: '+e.message;
@@ -1712,6 +1721,22 @@ function toggleMilestoneOverride(){
 /* ---- AUTH ---- */
 const CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercontent.com';
 let _idToken = null;
+var _authRetrying = false;
+
+function isAuthErrorMsg(msg){
+  return msg === 'Supervisor access required' || msg === 'Unauthorised';
+}
+
+/** One silent (no visible prompt if it can't run) re-auth attempt; falls back to onFail if Google can't silently confirm the session. */
+function trySilentReauth(onSuccess, onFail){
+  if(!window.google){ onFail(); return; }
+  google.accounts.id.initialize({ client_id: CLIENT_ID, callback: function(response){ _idToken = response.credential; onSuccess(); } });
+  google.accounts.id.prompt(function(notification){
+    if(notification && notification.isNotDisplayed && (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment())){
+      onFail();
+    }
+  });
+}
 
 function apiUrl(action, params) {
   var u = API_URL + '?action=' + action + '&token=' + encodeURIComponent(_idToken || '');
@@ -1750,6 +1775,12 @@ function initGoogleAuth(){
   google.accounts.id.initialize({ client_id: CLIENT_ID, callback: handleCredentialResponse, auto_select: true });
   google.accounts.id.renderButton(document.getElementById('gSignInBtn'), { theme: 'outline', size: 'large', text: 'sign_in_with' });
   google.accounts.id.prompt();
+  // Proactively refresh the ID token in the background well before it expires (~1hr),
+  // so long form sessions don't hit an expired-token error at submit time.
+  setInterval(function(){
+    if(!_idToken) return;
+    trySilentReauth(function(){}, function(){});
+  }, 45*60*1000);
 }
 
 /* ---- RE-AUTH (session expired mid-form) ---- */
@@ -1764,7 +1795,8 @@ function handleReauthResponse(response){
   _idToken = response.credential;
   document.getElementById('reauthOverlay').style.display = 'none';
   var statusEl = document.getElementById('statusMsg');
-  statusEl.className='status-msg'; statusEl.textContent='Signed in again — click Submit to try again.';
+  statusEl.className='status-msg'; statusEl.textContent='Signed back in — resubmitting…';
+  submitForm();
 }
 </script>
 <script src="https://accounts.google.com/gsi/client" async></script>

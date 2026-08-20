@@ -112,6 +112,8 @@ See `docs/SHEET_SETUP.md` for full column specs. Tabs in order:
 
 4. **PebblePad integration**: See `docs/HANDOVER_PebblePad_Session_Update.md`. Page 3 (Term summary) not yet built in PebblePad; several items flagged "unconfirmed" there need testing with a second account.
 
+5. **Backend migration off Google Sheets** (scheduled for the holidays, not yet started): Sheets/Apps Script backend is satisfactory but slow (Apps Script cold-starts, no indexing — every read is a full-range scan) and logs users out on long sessions. Preferred option: **Cloudflare D1 + Workers** — replace `Code.gs` with a Worker (same `doGet`/`doPost` action-routing shape, indexed SQL instead of range reads), replace the six Sheets tabs with equivalent D1 (SQLite) tables (`config`, `students`, `supervisors`, `skills`, `sessions`, `ratings`), keep the existing GIS One Tap frontend flow and `verifyToken` JWT-decode logic completely unchanged (ports near-verbatim into the Worker — no auth redesign needed). No idle/pause behavior on Cloudflare's free tier (unlike Supabase, which was also considered but pauses after 1 week inactivity). Email sending needs an external step either way (Cloudflare Email Sending API, since Workers have no `MailApp` equivalent) — only gap versus the current Apps Script setup. Data transfer is low-risk: export each Sheets tab to CSV, normalize booleans/dates, bulk-import into D1; can be done ahead of the cutover and tested in parallel before switching `API_URL` in the three frontend files. Frontend changes are limited to swapping `API_URL`/fetch endpoints if the new Worker mirrors the existing request/response shapes.
+
 ## Auth implementation notes
 
 - GIS One Tap (`auto_select: true`) — button popup was blocked by COOP on GitHub Pages; One Tap works

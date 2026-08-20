@@ -84,6 +84,15 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
   <div id="authMsg" style="font-size:calc(var(--font-scale,1)*13px);color:var(--red);display:none"></div>
 </div>
 
+<!-- Re-auth overlay — shown when a submit fails due to an expired session and silent re-sign-in didn't work; form data stays intact behind it -->
+<div id="reauthOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--bg,#fff);border-radius:12px;padding:24px;max-width:320px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;font-family:var(--font)">
+    <div style="font-size:calc(var(--font-scale,1)*16px);font-weight:600;color:var(--text)">Your session expired</div>
+    <div style="font-size:calc(var(--font-scale,1)*13px);color:var(--text-muted)">Sign in again to continue — your form entries are still here.</div>
+    <div id="reauthSignInBtn"></div>
+  </div>
+</div>
+
 <div id="appShell" style="display:none">
 <div class="container">
 <h1>Log Supervised Hours</h1>
@@ -791,12 +800,59 @@ function submitForm(){
       btn.disabled=false;
     })
     .catch(function(e){
+      btn.disabled=false;
+      if(isAuthErrorMsg(e.message) && !_authRetrying){
+        _authRetrying=true;
+        status.textContent='Session expired — signing back in…';
+        trySilentReauth(function(){
+          _authRetrying=false;
+          status.textContent='Signed back in — resubmitting…';
+          submitForm();
+        }, function(){
+          _authRetrying=false;
+          status.textContent='';
+          errEl.textContent='Your session expired — please sign in again below.';errEl.style.display='block';
+          showReauthOverlay();
+        });
+        return;
+      }
       errEl.textContent='Submission failed: '+e.message;errEl.style.display='block';
-      btn.disabled=false;status.textContent='';
+      status.textContent='';
     });
 }
 
 /* ===== AUTH ===== */
+var _authRetrying=false;
+
+function isAuthErrorMsg(msg){
+  return msg==='Student access required' || msg==='Unauthorised';
+}
+
+/** One silent (no visible prompt if it can't run) re-auth attempt; falls back to onFail if Google can't silently confirm the session. */
+function trySilentReauth(onSuccess, onFail){
+  if(!window.google){ onFail(); return; }
+  google.accounts.id.initialize({client_id:CLIENT_ID, callback:function(response){ _idToken=response.credential; onSuccess(); }});
+  google.accounts.id.prompt(function(notification){
+    if(notification && notification.isNotDisplayed && (notification.isNotDisplayed()||notification.isSkippedMoment()||notification.isDismissedMoment())){
+      onFail();
+    }
+  });
+}
+
+function showReauthOverlay(){
+  var overlay=document.getElementById('reauthOverlay');
+  overlay.style.display='flex';
+  google.accounts.id.initialize({client_id:CLIENT_ID, callback:handleReauthResponse});
+  google.accounts.id.renderButton(document.getElementById('reauthSignInBtn'),{theme:'outline',size:'large',text:'signin'});
+  google.accounts.id.prompt();
+}
+function handleReauthResponse(response){
+  _idToken=response.credential;
+  document.getElementById('reauthOverlay').style.display='none';
+  document.getElementById('statusMsg').textContent='Signed back in — resubmitting…';
+  submitForm();
+}
+
 function handleCredentialResponse(response){
   _idToken=response.credential;
   fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'role',token:_idToken})})
@@ -831,6 +887,12 @@ function initGoogleAuth(){
   google.accounts.id.initialize({client_id:CLIENT_ID,callback:handleCredentialResponse,auto_select:true});
   google.accounts.id.renderButton(document.getElementById('gSignInBtn'),{theme:'outline',size:'large',text:'sign_in_with'});
   google.accounts.id.prompt();
+  // Proactively refresh the ID token in the background well before it expires (~1hr),
+  // so long form sessions don't hit an expired-token error at submit time.
+  setInterval(function(){
+    if(!_idToken) return;
+    trySilentReauth(function(){}, function(){});
+  }, 45*60*1000);
 }
 </script>
 <script src="https://accounts.google.com/gsi/client" async></script>
