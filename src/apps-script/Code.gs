@@ -744,7 +744,7 @@ function getCohortOverview(cohort) {
   var sheet = ss.getSheetByName('Ratings');
   var data = sheet.getDataRange().getValues();
 
-  // Build summary: { studentId: { milestone: { skillId: { rating, isPriority, isStrength } } } }
+  // Build summary: { studentId: { milestone: { clinicType: { skillId: { rating, isPriority, isStrength } } } } }
   // Ratings schema: Timestamp|SessionID|StudentID|ClinicType|Milestone|SkillID|Rating|IsPriority|IsStrength|Comment
   var summary = {};
 
@@ -752,18 +752,20 @@ function getCohortOverview(cohort) {
     var sid = String(data[i][2]);
     if (!studentIdSet[sid]) continue;
 
-    var milestone = data[i][4];
-    var skillId   = data[i][5];
-    var rating    = Number(data[i][6]);
-    var timestamp = data[i][0];
+    var clinicType = data[i][3];
+    var milestone  = data[i][4];
+    var skillId    = data[i][5];
+    var rating     = Number(data[i][6]);
+    var timestamp  = data[i][0];
 
     if (!summary[sid]) summary[sid] = {};
     if (!summary[sid][milestone]) summary[sid][milestone] = {};
+    if (!summary[sid][milestone][clinicType]) summary[sid][milestone][clinicType] = {};
 
-    // Keep the most recent rating per skill per milestone
-    var existing = summary[sid][milestone][skillId];
+    // Keep the most recent rating per skill per clinic type per milestone
+    var existing = summary[sid][milestone][clinicType][skillId];
     if (!existing || timestamp > existing.timestamp) {
-      summary[sid][milestone][skillId] = {
+      summary[sid][milestone][clinicType][skillId] = {
         rating: rating,
         isPriority: data[i][7] === true || data[i][7] === 'TRUE',
         isStrength: data[i][8] === true || data[i][8] === 'TRUE',

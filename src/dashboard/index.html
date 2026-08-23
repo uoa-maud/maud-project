@@ -1193,18 +1193,16 @@ function applyCohortInitData(cohort, data){
   populateStudentSelect(students);
   (data.overview||[]).forEach(function(stu){
     // Convert flat API ratings to the session-array format expected by the dashboard
-    // API returns: { studentId, milestones: { ms: { skillId: { rating, isPriority, isStrength } } } }
+    // API returns: { studentId, milestones: { ms: { clinicType: { skillId: { rating, isPriority, isStrength } } } } }
     var byCtBySkill={};
     CLINIC_TYPES.forEach(function(ct){ byCtBySkill[ct]={}; });
-    // We only have latest-per-milestone from the overview; build single-entry arrays
+    // We only have latest-per-milestone-per-clinic-type from the overview; build single-entry arrays
     Object.keys(stu.milestones||{}).forEach(function(ms){
-      Object.keys(stu.milestones[ms]).forEach(function(skillId){
-        var sk=SKILLS.find(function(x){ return x.id===skillId; });
-        if(!sk) return;
-        var cts=SCOPE_MAP[sk.scope]||[];
-        cts.forEach(function(ct){
+      Object.keys(stu.milestones[ms]).forEach(function(ct){
+        if(!byCtBySkill[ct]) return;
+        Object.keys(stu.milestones[ms][ct]).forEach(function(skillId){
           if(!byCtBySkill[ct][skillId]) byCtBySkill[ct][skillId]=[];
-          var entry=stu.milestones[ms][skillId];
+          var entry=stu.milestones[ms][ct][skillId];
           byCtBySkill[ct][skillId].push({
             session:1, milestone:ms, rating:entry.rating,
             isPriority:entry.isPriority||false, isStrength:entry.isStrength||false, date:''
