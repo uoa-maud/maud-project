@@ -291,6 +291,10 @@ function doPost(e) {
         if (auth.role !== 'supervisor') { result = { error: 'Supervisor access required' }; break; }
         result = deleteSession(body.sessionId);
         break;
+      case 'updateSessionFields':
+        if (auth.role !== 'supervisor') { result = { error: 'Supervisor access required' }; break; }
+        result = updateSessionFields(body.sessionId, body.fields);
+        break;
       case 'emailSessionPdf':
         if (auth.role === 'none') { result = { error: 'Unauthorised' }; break; }
         result = emailSessionPdf(body.sessionId, body.pdfBase64, body.filename, auth.email);
@@ -1063,6 +1067,54 @@ function approveSession(sessionId, approvedBy) {
       sheet.getRange(i + 1, 34).setValue(approvedBy || '');
       return { success: true, sessionId: sessionId };
     }
+  }
+  return { error: 'Session not found: ' + sessionId };
+}
+
+/**
+ * Overwrites the editable subset of a session row: MNZAS flag and the 14 hour
+ * columns, plus (optionally) clearing the Approved/ApprovedBy columns to
+ * "unapprove" a reflection. Does not touch Timestamp, SessionID, StudentID,
+ * Date, Supervisors, Location, Activities, SubTypes, or Feedback — those stay
+ * out of scope for this quick-correction action. No duplicate-guard check and
+ * no student email re-send; this is a silent in-place correction, not a new
+ * submission.
+ */
+function updateSessionFields(sessionId, fields) {
+  if (!sessionId) return { error: 'sessionId required' };
+  fields = fields || {};
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Sessions');
+  if (!sheet) return { error: 'Sessions tab not found.' };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][1]) !== String(sessionId)) continue;
+
+    var row = i + 1;
+    var hrs = fields.hours || {};
+    sheet.getRange(row, 9).setValue(Number(hrs.adultDxObs) || 0);
+    sheet.getRange(row, 10).setValue(Number(hrs.adultDxTest) || 0);
+    sheet.getRange(row, 11).setValue(Number(hrs.paedDxObs) || 0);
+    sheet.getRange(row, 12).setValue(Number(hrs.paedDxTest) || 0);
+    sheet.getRange(row, 13).setValue(Number(hrs.adultRehabObs) || 0);
+    sheet.getRange(row, 14).setValue(Number(hrs.adultRehabTest) || 0);
+    sheet.getRange(row, 15).setValue(Number(hrs.paedRehabObs) || 0);
+    sheet.getRange(row, 16).setValue(Number(hrs.paedRehabTest) || 0);
+    sheet.getRange(row, 17).setValue(Number(hrs.otherObs) || 0);
+    sheet.getRange(row, 18).setValue(Number(hrs.otherTest) || 0);
+    sheet.getRange(row, 19).setValue(Number(hrs.orl) || 0);
+    sheet.getRange(row, 20).setValue(Number(hrs.slt) || 0);
+    sheet.getRange(row, 21).setValue(Number(hrs.simulation) || 0);
+    sheet.getRange(row, 22).setValue(Number(hrs.supervision) || 0);
+    sheet.getRange(row, 32).setValue(!!fields.mnzas);
+
+    if (fields.unapprove) {
+      sheet.getRange(row, 33).setValue(false);
+      sheet.getRange(row, 34).setValue('');
+    }
+
+    return { success: true, sessionId: sessionId };
   }
   return { error: 'Session not found: ' + sessionId };
 }

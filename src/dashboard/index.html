@@ -89,6 +89,8 @@ select{font-size:calc(var(--font-scale,1)*13px);padding:6px 28px 6px 10px;border
 .hrs-pending{font-size:calc(var(--font-scale,1)*10px);color:var(--text-hint);white-space:nowrap}
 .delete-session-btn{font-size:calc(var(--font-scale,1)*11px);padding:3px 10px;border-radius:4px;border:0.5px solid var(--border-strong);background:var(--surface);color:var(--text-hint);cursor:pointer;font-family:var(--font);white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
 .delete-session-btn:hover{background:var(--red-bg);color:var(--red-text);border-color:var(--red)}
+.edit-session-btn{font-size:calc(var(--font-scale,1)*11px);padding:3px 10px;border-radius:4px;border:0.5px solid var(--border-strong);background:var(--surface);color:var(--text-hint);cursor:pointer;font-family:var(--font);white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
+.edit-session-btn:hover{background:var(--accent-bg);color:var(--accent-text);border-color:var(--accent)}
 .session-table{width:100%;border-collapse:collapse;font-size:calc(var(--font-scale,1)*12px)}
 .session-table th{font-size:calc(var(--font-scale,1)*10px);font-weight:500;color:var(--text-hint);text-transform:uppercase;letter-spacing:.4px;padding:4px 8px;text-align:left;border-bottom:0.5px solid var(--border);white-space:nowrap;user-select:none}
 .session-table th.sortable{cursor:pointer}
@@ -868,6 +870,10 @@ function refreshSessionTable(){
           :'<span style="font-size:calc(var(--font-scale,1)*11px);color:var(--text-hint)">Pending approval</span>'))
       +'</td>'
       +'<td>'+(_userRole==='supervisor'
+        ?('<button class="edit-session-btn" data-session="'+ses.sessionId+'" title="Edit hours / MNZAS / approval">Edit</button>')
+        :'')
+      +'</td>'
+      +'<td>'+(_userRole==='supervisor'
         ?('<button class="delete-session-btn" data-session="'+ses.sessionId+'" title="Delete this session record">Delete</button>')
         :'')
       +'</td>'
@@ -1081,6 +1087,12 @@ document.getElementById('dashboard').addEventListener('click',function(e){
   var delBtn=e.target.closest('.delete-session-btn');
   if(delBtn){
     openDeleteSessionModal(delBtn.dataset.session, delBtn);
+    return;
+  }
+  // Edit session — opens the edit-fields modal
+  var editBtn=e.target.closest('.edit-session-btn');
+  if(editBtn){
+    openEditSessionModal(editBtn.dataset.session);
     return;
   }
   // Session ID — opens the full session detail modal
@@ -1524,6 +1536,32 @@ function handleReauthResponse(response){
   </div>
 </div>
 
+<!-- Edit Session Modal -->
+<div id="editSessionOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--surface);border-radius:12px;padding:24px;width:min(480px,92vw);max-height:88vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18);position:relative">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+      <h2 style="font-size:calc(var(--font-scale,1)*16px);font-weight:600;margin:0;color:var(--text)">Edit session <span id="editSessionIdLabel" style="font-family:monospace;font-weight:400;color:var(--text-muted)"></span></h2>
+      <button onclick="closeEditSessionModal()"
+        style="border:none;background:transparent;color:var(--text-muted);font-size:calc(var(--font-scale,1)*18px);cursor:pointer;line-height:1;padding:0 4px">✕</button>
+    </div>
+    <p style="font-size:calc(var(--font-scale,1)*12px);color:var(--text-hint);margin:0 0 14px">Only MNZAS, hours, and reflection approval can be edited here. Other fields (activities, ratings, feedback text) require deleting and resubmitting.</p>
+    <div id="editSessionBody" style="font-size:calc(var(--font-scale,1)*13px);color:var(--text)">
+      <div class="loading">Loading…</div>
+    </div>
+    <div id="editSessionStatus" style="display:none;margin-top:14px;padding:10px 12px;border-radius:var(--radius);font-size:calc(var(--font-scale,1)*12px)"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+      <button id="editSessionCancelBtn" onclick="closeEditSessionModal()"
+        style="padding:8px 18px;border:0.5px solid var(--border);border-radius:var(--radius);background:transparent;color:var(--text-muted);font-family:var(--font);font-size:calc(var(--font-scale,1)*13px);cursor:pointer">
+        Cancel
+      </button>
+      <button id="editSessionSaveBtn" onclick="saveEditSession()" disabled
+        style="padding:8px 18px;border:none;border-radius:var(--radius);background:var(--accent);color:#fff;font-family:var(--font);font-size:calc(var(--font-scale,1)*13px);cursor:pointer;font-weight:500">
+        Save
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- Session Detail Modal -->
 <div id="sessionDetailOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:20px">
   <div style="background:var(--surface);border-radius:12px;padding:24px;width:min(720px,92vw);max-height:88vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18);position:relative">
@@ -1640,6 +1678,137 @@ function openDeleteSessionModal(sessionId, triggerBtn){
 function closeDeleteSessionModal(){
   document.getElementById('deleteSessionOverlay').style.display='none';
   _deleteSessionTarget=null;
+}
+
+/* Patches edited fields into every cache that might hold this session, mirroring
+   markSessionApproved/removeSessionFromCaches' cache-consistency approach. */
+function patchSessionInCaches(sessionId, hrs, mnzas, approved, approvedBy){
+  function apply(s){
+    Object.keys(hrs).forEach(function(k){ s.hrs[k]=hrs[k]; });
+    s.mnzas=mnzas;
+    if(approved===false){ s.approved=false; s.approvedBy=''; }
+  }
+  var ses=_hoursStudentSessions.find(function(s){return s.sessionId===sessionId;});
+  if(ses) apply(ses);
+  Object.keys(hoursData).forEach(function(sid){
+    var m=(hoursData[sid]||[]).find(function(s){return s.sessionId===sessionId;});
+    if(m) apply(m);
+  });
+  Object.keys(cohortSessionsData).forEach(function(c){
+    var m=(cohortSessionsData[c]||[]).find(function(s){return s.sessionId===sessionId;});
+    if(m) apply(m);
+  });
+  cohortHoursData={};
+}
+
+/* ---- EDIT SESSION MODAL ---- */
+var _editSessionId=null;
+var _editSessionWasApproved=false;
+
+function editSessionSetStatus(msg, type){
+  var el=document.getElementById('editSessionStatus');
+  el.style.display='block';
+  el.textContent=msg;
+  el.style.background = type==='error' ? 'var(--red-bg)' : 'var(--accent-bg)';
+  el.style.color = type==='error' ? 'var(--red-text)' : 'var(--accent-text)';
+}
+
+function openEditSessionModal(sessionId){
+  _editSessionId=sessionId;
+  _editSessionWasApproved=false;
+  document.getElementById('editSessionIdLabel').textContent=sessionId||'';
+  document.getElementById('editSessionBody').innerHTML='<div class="loading">Loading…</div>';
+  document.getElementById('editSessionStatus').style.display='none';
+  document.getElementById('editSessionSaveBtn').disabled=true;
+  document.getElementById('editSessionSaveBtn').textContent='Save';
+  document.getElementById('editSessionOverlay').style.display='flex';
+
+  if(!API_URL||usingDemo){
+    document.getElementById('editSessionBody').innerHTML='<p style="color:var(--text-muted)">Editing is not available in demo mode.</p>';
+    return;
+  }
+
+  fetch(API_URL+'?action=session&sessionId='+encodeURIComponent(sessionId)+'&token='+encodeURIComponent(_idToken||''))
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(data.error){
+        document.getElementById('editSessionBody').innerHTML='<p style="color:var(--red-text)">'+_sdEsc(data.error)+'</p>';
+        return;
+      }
+      renderEditSessionBody(data.session);
+      document.getElementById('editSessionSaveBtn').disabled=false;
+    })
+    .catch(function(err){
+      document.getElementById('editSessionBody').innerHTML='<p style="color:var(--red-text)">Failed to load session: '+_sdEsc(err.message||err)+'</p>';
+    });
+}
+
+function renderEditSessionBody(s){
+  _editSessionWasApproved=!!s.approved;
+  var hrs=s.hrs||{};
+  var html='<label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer">'
+    +'<input type="checkbox" id="editMnzas"'+(s.mnzas?' checked':'')+'> MNZAS member</label>';
+  html+='<div style="display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center">';
+  Object.keys(SESSION_HOURS_LABELS).forEach(function(k){
+    html+='<label for="editHrs_'+k+'" style="color:var(--text-muted)">'+SESSION_HOURS_LABELS[k]+'</label>'
+      +'<input type="number" id="editHrs_'+k+'" min="0" step="0.25" value="'+(Number(hrs[k])||0)+'"'
+      +' style="width:80px;padding:4px 8px;border:0.5px solid var(--border-strong);border-radius:4px;background:var(--surface-2,var(--surface));color:var(--text);font-family:var(--font)">';
+  });
+  html+='</div>';
+  if(s.approved){
+    html+='<label style="display:flex;align-items:center;gap:8px;margin-top:16px;cursor:pointer">'
+      +'<input type="checkbox" id="editUnapprove"> Unapprove reflection (currently approved by '+_sdEsc(s.approvedBy||'—')+')</label>';
+  }
+  document.getElementById('editSessionBody').innerHTML=html;
+}
+
+function closeEditSessionModal(){
+  document.getElementById('editSessionOverlay').style.display='none';
+  _editSessionId=null;
+}
+
+function saveEditSession(){
+  if(!_editSessionId) return;
+  var sessionId=_editSessionId;
+  var hrs={};
+  Object.keys(SESSION_HOURS_LABELS).forEach(function(k){
+    var el=document.getElementById('editHrs_'+k);
+    hrs[k]=el?(Number(el.value)||0):0;
+  });
+  var mnzas=document.getElementById('editMnzas').checked;
+  var unapproveEl=document.getElementById('editUnapprove');
+  var unapprove=!!(unapproveEl&&unapproveEl.checked);
+
+  var saveBtn=document.getElementById('editSessionSaveBtn');
+  saveBtn.disabled=true; saveBtn.textContent='Saving…';
+  document.getElementById('editSessionCancelBtn').disabled=true;
+
+  function onSuccess(){
+    patchSessionInCaches(sessionId, hrs, mnzas, unapprove?false:undefined);
+    if(!_sessionTableCohortMode && currentView==='hours') renderHoursStudent();
+    refreshSessionTable();
+    closeEditSessionModal();
+  }
+
+  if(!API_URL||usingDemo){ onSuccess(); return; }
+
+  fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
+    body:JSON.stringify({action:'updateSessionFields',token:_idToken,sessionId:sessionId,
+      fields:{hours:hrs,mnzas:mnzas,unapprove:unapprove}})})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      if(res.error === 'Supervisor access required'){
+        showReauthOverlay(function(){ saveEditSession(); });
+        return;
+      }
+      if(res.error) throw new Error(res.error);
+      onSuccess();
+    })
+    .catch(function(err){
+      editSessionSetStatus('Save failed: '+(err.message||err), 'error');
+      saveBtn.disabled=false; saveBtn.textContent='Save';
+      document.getElementById('editSessionCancelBtn').disabled=false;
+    });
 }
 
 /* ---- SESSION DETAIL MODAL ---- */
