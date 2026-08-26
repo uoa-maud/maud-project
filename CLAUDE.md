@@ -16,7 +16,7 @@ See @docs/HANDOVER_PebblePad_Session_Update.md for the latest PebblePad design d
 - **Backend**: Google Sheets + Google Apps Script (deployed as web app)
 - **Authentication**: Google Identity Services One Tap (GIS); token verified server-side via local JWT decode (no tokeninfo HTTP call)
 - **Portfolio**: PebblePad with ATLAS (external, not in this repo)
-- **PDF generation**: Client-side via html2pdf.js (not yet wired up — see Outstanding work)
+- **PDF generation**: Client-side via pdfMake (implemented in both forms; emailed server-side via `emailSessionPdf`)
 
 ## Live URLs
 
@@ -49,7 +49,8 @@ See @docs/HANDOVER_PebblePad_Session_Update.md for the latest PebblePad design d
 │   │   └── index.html           # Student hours log
 │   └── apps-script/
 │       ├── Code.gs              # Main API (config, students, ratings, submit)
-│       └── PlacementImporter.gs # Placement Excel hours importer
+│       ├── PlacementImporter.gs # Placement Excel hours importer (unused, writes to separate "Hours" tab — not part of live system)
+│       └── CohortHoursImporter.gs # One-off cohort hours migration (already run against live Sessions tab; safe to re-run, skips already-imported rows)
 ├── prototypes/                  # Reference prototypes from design phase
 └── assets/
 ```
@@ -102,17 +103,11 @@ See `docs/SHEET_SETUP.md` for full column specs. Tabs in order:
 
 ## Outstanding work (next session)
 
-1. **Config tab milestone dates**: Add cols D/E/F (S1 End, S2 End, Y2 End as dates) to live Google Sheet Config tab, then **redeploy Code.gs** as a new version.
+1. **Drive folder** (`Code.gs`): Create per-student Drive folder with restricted sharing; save PDF there on submission.
 
-2. **Supervisors tab IsCoordinator column**: Add col C (`IsCoordinator`, TRUE/FALSE) to the live Supervisors tab and redeploy Code.gs — required for `emailSessionPdf` to find coordinator recipients. PDF generation (pdfMake, both forms) and PDF email delivery (`emailSessionPdf` action) are now implemented; this column is the only missing piece for it to work end-to-end on the live sheet.
+2. **PebblePad integration**: See `docs/HANDOVER_PebblePad_Session_Update.md`. Page 3 (Term summary) not yet built in PebblePad; several items flagged "unconfirmed" there need testing with a second account.
 
-3. **Drive folder** (`Code.gs`): Create per-student Drive folder with restricted sharing; save PDF there on submission.
-
-3a. **Cohort hours import** (`src/apps-script/CohortHoursImporter.gs`): One-off migration script that imports `docs/0. 2026 MAud Year 1 Clinical Hours.xlsx` (one tab per student, dates across columns) directly into the live Sessions tab. Run manually from the Apps Script editor (`runCohortHoursImportNow` — edit `FILE_ID`/`COHORT_YEAR` constants first, after uploading the xlsx to Drive). Imported rows get Column 34 (AH) marked `*IMPORTED*`; matching is by student name (tab name minus the "X - " group prefix) against the Students tab for the given cohort, so emails must be added to Students first or unmatched tabs are skipped and reported. Re-running is safe — already-imported student+date pairs are skipped. Distinct from the older `PlacementImporter.gs`, which writes to an unused separate "Hours" tab — not part of the live system.
-
-4. **PebblePad integration**: See `docs/HANDOVER_PebblePad_Session_Update.md`. Page 3 (Term summary) not yet built in PebblePad; several items flagged "unconfirmed" there need testing with a second account.
-
-5. **Backend migration off Google Sheets** (scheduled for the holidays, not yet started): Sheets/Apps Script backend is satisfactory but slow (Apps Script cold-starts, no indexing — every read is a full-range scan) and logs users out on long sessions. Preferred option: **Cloudflare D1 + Workers** — replace `Code.gs` with a Worker (same `doGet`/`doPost` action-routing shape, indexed SQL instead of range reads), replace the six Sheets tabs with equivalent D1 (SQLite) tables (`config`, `students`, `supervisors`, `skills`, `sessions`, `ratings`), keep the existing GIS One Tap frontend flow and `verifyToken` JWT-decode logic completely unchanged (ports near-verbatim into the Worker — no auth redesign needed). No idle/pause behavior on Cloudflare's free tier (unlike Supabase, which was also considered but pauses after 1 week inactivity). Email sending needs an external step either way (Cloudflare Email Sending API, since Workers have no `MailApp` equivalent) — only gap versus the current Apps Script setup. Data transfer is low-risk: export each Sheets tab to CSV, normalize booleans/dates, bulk-import into D1; can be done ahead of the cutover and tested in parallel before switching `API_URL` in the three frontend files. Frontend changes are limited to swapping `API_URL`/fetch endpoints if the new Worker mirrors the existing request/response shapes.
+3. **Backend migration off Google Sheets** (scheduled for the holidays, not yet started): Sheets/Apps Script backend is satisfactory but slow (Apps Script cold-starts, no indexing — every read is a full-range scan) and logs users out on long sessions. Preferred option: **Cloudflare D1 + Workers** — replace `Code.gs` with a Worker (same `doGet`/`doPost` action-routing shape, indexed SQL instead of range reads), replace the six Sheets tabs with equivalent D1 (SQLite) tables (`config`, `students`, `supervisors`, `skills`, `sessions`, `ratings`), keep the existing GIS One Tap frontend flow and `verifyToken` JWT-decode logic completely unchanged (ports near-verbatim into the Worker — no auth redesign needed). No idle/pause behavior on Cloudflare's free tier (unlike Supabase, which was also considered but pauses after 1 week inactivity). Email sending needs an external step either way (Cloudflare Email Sending API, since Workers have no `MailApp` equivalent) — only gap versus the current Apps Script setup. Data transfer is low-risk: export each Sheets tab to CSV, normalize booleans/dates, bulk-import into D1; can be done ahead of the cutover and tested in parallel before switching `API_URL` in the three frontend files. Frontend changes are limited to swapping `API_URL`/fetch endpoints if the new Worker mirrors the existing request/response shapes.
 
 ## Auth implementation notes
 
@@ -164,7 +159,7 @@ THREE milestones only (S1/S2/Y2). The old T1/T2/T3/T4 system is dead — do not 
 - **Developed**: Appears confident, manages time effectively, needs assistance in complex cases only
 - **Consistent**: Manages complex clients well, high level of competence
 
-Full behavioural descriptors per skill are in `UoA_Guidelines_for_Clinical_Assessment_v2.docx`. These should be shown as hints in the feedback form when a rating is selected (not yet implemented).
+Full behavioural descriptors per skill are in `UoA_Guidelines_for_Clinical_Assessment_v2.docx`. These are shown as hints in the feedback form when a rating is selected (`src/form/index.html`, `SKILL_HINTS`/`LEVELS`, rendered via `.rating-hint`).
 
 ## Clinic types
 
