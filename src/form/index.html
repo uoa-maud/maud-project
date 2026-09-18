@@ -1515,6 +1515,23 @@ window.addEventListener('beforeunload', function(e){
   }
 });
 
+/* Apps Script occasionally returns an HTML error page instead of JSON on
+   transient cold-start/quota hiccups — retry once after a short delay
+   before surfacing an error, since the duplicate-submission guard on the
+   backend makes a safe-to-retry POST for identical data within 3 minutes. */
+function submitWithRetry(payload, attempt){
+  attempt = attempt || 1;
+  return fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(payload)})
+    .then(function(r){return r.json();})
+    .catch(function(e){
+      if(attempt<2){
+        return new Promise(function(resolve){setTimeout(resolve,1500);})
+          .then(function(){return submitWithRetry(payload,attempt+1);});
+      }
+      throw new Error('Submission failed after retrying — please check your connection and try again.');
+    });
+}
+
 function submitForm() {
   var d = collect();
   var err = validate(d);
@@ -1532,8 +1549,7 @@ function submitForm() {
     return;
   }
 
-  fetch(API_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify({action:'submitSession',token:_idToken,data:d})})
-    .then(function(r){ return r.json(); })
+  submitWithRetry({action:'submitSession',token:_idToken,data:d})
     .then(function(res){
       if(res.error) throw new Error(res.error);
       _formSubmitted=true;
