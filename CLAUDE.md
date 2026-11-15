@@ -20,10 +20,10 @@ See @docs/HANDOVER_PebblePad_Session_Update.md for the latest PebblePad design d
 
 ## Live URLs
 
-- **Home**: https://jakalnz.github.io/maud-project/
-- **Student Dashboard**: https://jakalnz.github.io/maud-project/src/dashboard/
-- **Session Feedback & Assessment**: https://jakalnz.github.io/maud-project/src/form/
-- **Log Supervised Hours**: https://jakalnz.github.io/maud-project/src/student-form/
+- **Home**: https://uoa-maud.github.io/maud-project/
+- **Student Dashboard**: https://uoa-maud.github.io/maud-project/src/dashboard/
+- **Session Feedback & Assessment**: https://uoa-maud.github.io/maud-project/src/form/
+- **Log Supervised Hours**: https://uoa-maud.github.io/maud-project/src/student-form/
 - **Apps Script**: `https://script.google.com/macros/s/AKfycbwsc7vAdP7FcmeWK_5TPXJOxXnUBtFVmv_m1cTMp9V7T-PjhnPkbJfh-Pn1Q1-hMIHTTg/exec`
 - **OAuth Client ID**: `27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercontent.com`
 

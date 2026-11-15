@@ -1,8 +1,8 @@
 # MAud Project — PebblePad Integration Handover
 
 **Date**: 2026-06-20  
-**Repo**: https://github.com/jakalnz/maud-project  
-**GitHub Pages**: https://jakalnz.github.io/maud-project/  
+**Repo**: https://github.com/uoa-maud/maud-project  
+**GitHub Pages**: https://uoa-maud.github.io/maud-project/  
 **Apps Script URL**: `https://script.google.com/macros/s/AKfycbwsc7vAdP7FcmeWK_5TPXJOxXnUBtFVmv_m1cTMp9V7T-PjhnPkbJfh-Pn1Q1-hMIHTTg/exec`
 
 ---
