@@ -131,6 +131,10 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='10
 .status-msg{font-size:calc(var(--font-scale,1)*13px);color:var(--text-muted)}
 .status-msg.ok{color:var(--green-text)}
 .status-msg.err{color:var(--red-text)}
+.sent-banner{display:none;margin-top:1.5rem;padding:16px 18px;background:var(--green-bg);border:1.5px solid var(--green);border-radius:var(--radius);color:var(--green-text)}
+.sent-banner.show{display:block}
+.sent-banner-title{font-size:calc(var(--font-scale,1)*17px);font-weight:600;margin-bottom:4px}
+.sent-banner-detail{font-size:calc(var(--font-scale,1)*14px);margin-bottom:12px}
 </style>
 </head>
 <body>
@@ -271,6 +275,11 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='10
 </div>
 
 <!-- Submit -->
+<div class="sent-banner" id="sentBanner" role="status">
+  <div class="sent-banner-title">&#10003; Feedback sent</div>
+  <div class="sent-banner-detail" id="sentBannerDetail"></div>
+  <button type="button" class="btn-primary" onclick="location.reload()">Start a new session</button>
+</div>
 <div class="submit-area">
   <button class="btn-primary" id="submitBtn" onclick="submitForm()">Submit &amp; generate PDF</button>
   <button class="btn-secondary" onclick="previewPDF()">Preview PDF</button>
@@ -1532,36 +1541,61 @@ function submitWithRetry(payload, attempt){
     });
 }
 
+var _submitting=false;
+var SUBMIT_LABEL='Submit &amp; generate PDF';
+
+function setSubmitBusy(busy){
+  var btn=document.getElementById('submitBtn');
+  _submitting=busy;
+  btn.disabled=busy;
+  btn.innerHTML=busy ? 'Sending… please wait' : SUBMIT_LABEL;
+}
+
+function showSentBanner(d, detail){
+  var btn=document.getElementById('submitBtn');
+  btn.disabled=true;
+  btn.textContent='✓ Feedback sent';
+  var who=d.studentName ? 'Sent for '+d.studentName : 'Sent';
+  var when=d.date ? ' on '+d.date : '';
+  document.getElementById('sentBannerDetail').textContent=who+when+'. '+detail;
+  var banner=document.getElementById('sentBanner');
+  banner.classList.add('show');
+  banner.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
 function submitForm() {
+  if(_submitting || _formSubmitted) return;
   var d = collect();
   var err = validate(d);
   var statusEl = document.getElementById('statusMsg');
   if(err){ statusEl.className='status-msg err'; statusEl.textContent=err; return; }
   statusEl.className='status-msg'; statusEl.textContent='Submitting…';
-  document.getElementById('submitBtn').disabled=true;
+  setSubmitBusy(true);
 
   if(!API_URL) {
+    _submitting=false;
     _formSubmitted=true;
     localStorage.removeItem(draftKey(d.studentId));
     generatePDF(d);
-    statusEl.className='status-msg ok'; statusEl.textContent='PDF downloaded. (Demo mode — connect API to save data.)';
-    document.getElementById('submitBtn').disabled=false;
+    statusEl.textContent='';
+    showSentBanner(d, 'PDF downloaded. (Demo mode — connect API to save data.)');
     return;
   }
 
   submitWithRetry({action:'submitSession',token:_idToken,data:d})
     .then(function(res){
       if(res.error) throw new Error(res.error);
+      _submitting=false;
       _formSubmitted=true;
       localStorage.removeItem(draftKey(d.studentId));
       d.sessionId = res.sessionId || '';
       generatePDF(d);
-      statusEl.className='status-msg ok'; statusEl.textContent='Submitted. Session '+res.sessionId+'. PDF downloaded.';
-      document.getElementById('submitBtn').disabled=false;
+      statusEl.textContent='';
+      showSentBanner(d, 'Session '+(res.sessionId||'')+'. PDF downloaded and emailed — no need to submit again.');
     })
     .catch(function(e){
-      document.getElementById('submitBtn').disabled=false;
       if(isAuthErrorMsg(e.message) && !_authRetrying){
+        _submitting=false;
         _authRetrying=true;
         statusEl.className='status-msg'; statusEl.textContent='Session expired — signing back in…';
         trySilentReauth(function(){
@@ -1570,11 +1604,13 @@ function submitForm() {
           submitForm();
         }, function(){
           _authRetrying=false;
+          setSubmitBusy(false);
           statusEl.className='status-msg err'; statusEl.textContent='Your session expired — please sign in again below.';
           showReauthOverlay();
         });
         return;
       }
+      setSubmitBusy(false);
       statusEl.className='status-msg err'; statusEl.textContent='Error: '+e.message;
     });
 }

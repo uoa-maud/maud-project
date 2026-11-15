@@ -72,6 +72,10 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .submit-row{display:flex;gap:10px;align-items:center;margin-top:6px}
 .status-msg{font-size:calc(var(--font-scale,1)*13px);color:var(--text-muted)}
 .error-msg{font-size:calc(var(--font-scale,1)*13px);color:var(--red);background:var(--red-bg);border:1px solid var(--red);border-radius:var(--radius);padding:10px 14px;margin-top:8px}
+.sent-banner{display:none;margin-top:12px;padding:16px 18px;background:var(--green-bg);border:1.5px solid var(--green);border-radius:var(--radius);color:var(--green-text)}
+.sent-banner.show{display:block}
+.sent-banner-title{font-size:calc(var(--font-scale,1)*17px);font-weight:600;margin-bottom:4px}
+.sent-banner-detail{font-size:calc(var(--font-scale,1)*14px);margin-bottom:12px}
 </style>
 </head>
 <body>
@@ -205,6 +209,11 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <span class="status-msg" id="statusMsg"></span>
   </div>
   <div id="errorMsg" class="error-msg" style="display:none"></div>
+  <div class="sent-banner" id="sentBanner" role="status">
+    <div class="sent-banner-title">&#10003; Hours logged</div>
+    <div class="sent-banner-detail" id="sentBannerDetail"></div>
+    <button type="button" class="btn btn-primary" onclick="location.reload()">Log another session</button>
+  </div>
 </div>
 
 </div><!-- /container -->
@@ -784,7 +793,18 @@ function submitWithRetry(payload, attempt){
     });
 }
 
+var _submitting=false;
+var SUBMIT_LABEL='Submit &amp; download PDF';
+
+function setSubmitBusy(busy){
+  var btn=document.getElementById('submitBtn');
+  _submitting=busy;
+  btn.disabled=busy;
+  btn.innerHTML=busy ? 'Sending… please wait' : SUBMIT_LABEL;
+}
+
 function submitForm(){
+  if(_submitting || _formSubmitted) return;
   var d=collect();
   var err=validate(d);
   var errEl=document.getElementById('errorMsg');
@@ -792,7 +812,7 @@ function submitForm(){
   errEl.style.display='none';
   var btn=document.getElementById('submitBtn');
   var status=document.getElementById('statusMsg');
-  btn.disabled=true;status.textContent='Submitting…';
+  setSubmitBusy(true);status.textContent='Submitting…';
   var sigDataURL=_sigMode==='photo' ? _sigPhotoDataURL : sigCanvas.toDataURL('image/png');
   submitWithRetry({action:'submitStudentHours',token:_idToken,data:d})
     .then(function(res){
@@ -811,12 +831,18 @@ function submitForm(){
             .catch(function(e){ console.error('emailSessionPdf failed:',e); });
         });
       }
-      status.textContent='Done — PDF downloaded. Session ID: '+(res.sessionId||'');
-      btn.disabled=false;
+      _submitting=false;
+      status.textContent='';
+      btn.textContent='✓ Hours logged';
+      document.getElementById('sentBannerDetail').textContent=
+        'Session '+(res.sessionId||'')+(d.date?' on '+d.date:'')+'. PDF downloaded and emailed — no need to submit again.';
+      var banner=document.getElementById('sentBanner');
+      banner.classList.add('show');
+      banner.scrollIntoView({behavior:'smooth',block:'center'});
     })
     .catch(function(e){
-      btn.disabled=false;
       if(isAuthErrorMsg(e.message) && !_authRetrying){
+        _submitting=false;
         _authRetrying=true;
         status.textContent='Session expired — signing back in…';
         trySilentReauth(function(){
@@ -825,12 +851,14 @@ function submitForm(){
           submitForm();
         }, function(){
           _authRetrying=false;
+          setSubmitBusy(false);
           status.textContent='';
           errEl.textContent='Your session expired — please sign in again below.';errEl.style.display='block';
           showReauthOverlay();
         });
         return;
       }
+      setSubmitBusy(false);
       errEl.textContent='Submission failed: '+e.message;errEl.style.display='block';
       status.textContent='';
     });
