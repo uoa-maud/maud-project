@@ -90,6 +90,17 @@ Three cards linking to the three tools.
 - `getConfig`: reads Config tab cols A–F (Year, Label, Active, S1 End, S2 End, Y2 End); returns cohorts with `s1End`/`s2End`/`y2End` date strings
 - Auth on submit: checks `auth.studentId` (not `auth.role`) so supervisors with student records can submit student hours
 
+## Deploying Apps Script (clasp)
+
+`.clasp.json` (repo root) links `src/apps-script/` to the live project; `.claspignore` excludes the unused `PlacementImporter.gs`. `clasp push` **replaces every file** in the online project with the local ones, so never edit code in the online editor — edit here, then:
+
+```bash
+clasp push --force
+clasp create-deployment --deploymentId AKfycbwsc7vAdP7FcmeWK_5TPXJOxXnUBtFVmv_m1cTMp9V7T-PjhnPkbJfh-Pn1Q1-hMIHTTg --description "..."
+```
+
+Redeploying to that existing deployment ID keeps the `/exec` URL unchanged. Commit before pushing so live code always matches a commit.
+
 ## Google Sheet structure
 
 See `docs/SHEET_SETUP.md` for full column specs. Tabs in order:

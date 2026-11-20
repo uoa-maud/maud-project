@@ -1,0 +1,3 @@
+# Old placement importer (writes to an unused "Hours" tab) — superseded by
+# BlockPlacementImporter.gs; kept in the repo for reference but not deployed.
+PlacementImporter.gs
