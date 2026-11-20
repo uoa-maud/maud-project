@@ -33,7 +33,7 @@ var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercon
  * on one day). Returned on every response and shown in the site footer, so a
  * successful deploy can be confirmed at a glance.
  */
-var API_VERSION = '2026.11.21';
+var API_VERSION = '2026.11.21.2';
 
 /** Per-execution cache hit/miss counts, returned as `_cache` on every response for testing. */
 var _cacheStats = { hits: 0, misses: 0 };
@@ -69,8 +69,12 @@ function verifyToken(idToken) {
   } catch(e) { return null; }
 }
 
-/** CacheService TTL for directory/config lookups that rarely change between requests. */
-var CACHE_TTL_SECONDS = 300;
+/**
+ * CacheService TTL for directory/config lookups (Students, Supervisors, Config, Skills).
+ * Same as the data TTL: edits to those tabs fire onEdit and bump the data version,
+ * so a short TTL only caused needless misses.
+ */
+var CACHE_TTL_SECONDS = 1800;
 
 /**
  * TTL for cached Sessions/Ratings-derived results (hours, ratings, overviews).
