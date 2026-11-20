@@ -29,6 +29,25 @@
 var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercontent.com';
 
 /**
+ * Bump on every backend deploy (format YYYY.MM.DD, add .2/.3 for repeat deploys
+ * on one day). Returned on every response and shown in the site footer, so a
+ * successful deploy can be confirmed at a glance.
+ */
+var API_VERSION = '2026.11.21';
+
+/** Per-execution cache hit/miss counts, returned as `_cache` on every response for testing. */
+var _cacheStats = { hits: 0, misses: 0 };
+
+/** Adds apiVersion and cache stats to an object response before it's serialised. */
+function withMeta(result) {
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    result.apiVersion = API_VERSION;
+    result._cache = _cacheStats;
+  }
+  return result;
+}
+
+/**
  * Decode and verify a Google ID token locally (no external HTTP call).
  * Checks aud, iss, and expiry. Signature is implicitly trusted because
  * only Google can issue tokens for our CLIENT_ID.
@@ -99,8 +118,9 @@ function getCached(key, computeFn, ttlSeconds) {
   var versionedKey = key + '@' + getDataVersion();
   var hit = cache.get(versionedKey);
   if (hit) {
-    try { return JSON.parse(hit); } catch (e) { /* fall through to recompute */ }
+    try { var parsed = JSON.parse(hit); _cacheStats.hits++; return parsed; } catch (e) { /* fall through to recompute */ }
   }
+  _cacheStats.misses++;
   var value = computeFn();
   try { cache.put(versionedKey, JSON.stringify(value), ttlSeconds || CACHE_TTL_SECONDS); } catch (e) { /* value too large — skip caching */ }
   return value;
@@ -219,6 +239,10 @@ function doGet(e) {
     if (action === 'role') {
       result = getRole(token);
     }
+    // Version — public, reads no sheets; dataVersion changes on every write/edit (cache test)
+    else if (action === 'version') {
+      result = { dataVersion: getDataVersion() };
+    }
     // Config — public (no auth needed to load skill definitions)
     else if (action === 'config') {
       result = getConfig();
@@ -273,7 +297,7 @@ function doGet(e) {
   }
 
   return ContentService
-    .createTextOutput(JSON.stringify(result))
+    .createTextOutput(JSON.stringify(withMeta(result)))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -356,7 +380,7 @@ function doPost(e) {
     try { bumpDataVersion(); } catch (e) { /* worst case: reads stay stale until DATA_CACHE_TTL_SECONDS */ }
   }
   return ContentService
-    .createTextOutput(JSON.stringify(result))
+    .createTextOutput(JSON.stringify(withMeta(result)))
     .setMimeType(ContentService.MimeType.JSON);
 }
 

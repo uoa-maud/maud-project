@@ -101,6 +101,20 @@ clasp create-deployment --deploymentId AKfycbwsc7vAdP7FcmeWK_5TPXJOxXnUBtFVmv_m1
 
 Redeploying to that existing deployment ID keeps the `/exec` URL unchanged. Commit before pushing so live code always matches a commit.
 
+## Versioning
+
+Every page shows a small footer `Site vX · API vY` (from `version.js` at the repo root, included by all four pages). Bump on every push, format `YYYY.MM.DD` (add `.2`, `.3` for repeat pushes on one day):
+- `SITE_VERSION` in `version.js` — any frontend change (GitHub Pages can take ~10 min to show it)
+- `API_VERSION` in `src/apps-script/Code.gs` — any backend deploy
+
+`GET ?action=version` returns `{apiVersion, dataVersion}` without reading any sheets.
+
+## Caching (Apps Script)
+
+Reads are cached in `CacheService`, keyed by a `dataVersion` stored in Script Properties. Every `doPost` write, the cohort importer, and every manual cell edit (`onEdit` simple trigger) bumps `dataVersion`, invalidating all cached reads. Manual row deletions don't fire `onEdit`, so those can be stale for up to `DATA_CACHE_TTL_SECONDS` (30 min). Every API response includes `_cache: {hits, misses}` for that request.
+
+To test: hover the footer to see "Data last changed" (it updates after a submit or a sheet edit); in DevTools → Network, reload the dashboard twice — the `init` response's `_cache` should go from mostly misses to all hits.
+
 ## Google Sheet structure
 
 See `docs/SHEET_SETUP.md` for full column specs. Tabs in order:
