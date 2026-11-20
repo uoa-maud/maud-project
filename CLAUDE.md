@@ -320,4 +320,4 @@ All GET endpoints accept an optional `token` query param. Role check must use PO
 - Extended term structure beyond S1/S2/Y2
 - Automated placement competency mapping (currently handled manually)
 - PebblePad API push (requires UoA IT to provide OAuth2 client credentials)
-- Dashboard embedding in PebblePad iframe (awaiting UoA IT whitelist request for `jakalnz.github.io`)
+- Dashboard embedding in PebblePad iframe (awaiting UoA IT whitelist request for `uoa-maud.github.io`)

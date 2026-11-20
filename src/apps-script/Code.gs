@@ -54,17 +54,55 @@ function verifyToken(idToken) {
 var CACHE_TTL_SECONDS = 300;
 
 /**
+ * TTL for cached Sessions/Ratings-derived results (hours, ratings, overviews).
+ * Can be long because every write bumps the data version (see bumpDataVersion),
+ * which makes all older cache entries unreachable immediately. The TTL only
+ * bounds staleness for sheet changes that don't fire onEdit (e.g. deleting
+ * rows by hand in the Sheets UI).
+ */
+var DATA_CACHE_TTL_SECONDS = 1800;
+
+var _dataVersion = null;
+
+/** Current data version, read once per execution from Script Properties. */
+function getDataVersion() {
+  if (_dataVersion === null) {
+    _dataVersion = PropertiesService.getScriptProperties().getProperty('dataVersion') || '0';
+  }
+  return _dataVersion;
+}
+
+/**
+ * Invalidates every cached entry by moving to a new data version. Call after
+ * any write to the sheet; old entries simply expire unused.
+ */
+function bumpDataVersion() {
+  _dataVersion = String(Date.now());
+  PropertiesService.getScriptProperties().setProperty('dataVersion', _dataVersion);
+}
+
+/**
+ * Simple trigger: manual edits in the Sheets UI (e.g. fixing a student's cohort,
+ * adding a supervisor) invalidate the cache so the web apps see them straight away.
+ */
+function onEdit(e) {
+  bumpDataVersion();
+}
+
+/**
  * Wraps a cache-or-compute pattern: returns the cached JSON value for `key`
  * if present, otherwise calls `computeFn()`, caches the result, and returns it.
+ * Keys are scoped to the current data version, so bumpDataVersion() invalidates them all.
  */
-function getCached(key, computeFn) {
+function getCached(key, computeFn, ttlSeconds) {
   var cache = CacheService.getScriptCache();
-  var hit = cache.get(key);
+  var versionedKey = key + '@' + getDataVersion();
+  var hit = cache.get(versionedKey);
   if (hit) {
     try { return JSON.parse(hit); } catch (e) { /* fall through to recompute */ }
   }
   var value = computeFn();
-  try { cache.put(key, JSON.stringify(value), CACHE_TTL_SECONDS); } catch (e) { /* value too large — skip caching */ }
+  try { cache.put(versionedKey, JSON.stringify(value), ttlSeconds || CACHE_TTL_SECONDS); } catch (e) { /* value too large — skip caching */ }
   return value;
 }
 
@@ -242,10 +280,13 @@ function doGet(e) {
 /**
  * Handles POST requests. Content-Type must be text/plain (avoids CORS preflight).
  */
+var WRITE_ACTIONS = ['submitSession', 'submitStudentHours', 'approveSession', 'deleteSession',
+  'updateSessionFields', 'importBlockPlacement'];
+
 function doPost(e) {
-  var result;
+  var result, body;
   try {
-    var body = JSON.parse(e.postData.contents);
+    body = JSON.parse(e.postData.contents);
     var auth = getRole(body.token || '');
 
     switch (body.action) {
@@ -308,6 +349,11 @@ function doPost(e) {
     }
   } catch (err) {
     result = { error: err.message };
+  }
+  // Any write may have touched Sessions/Ratings — invalidate cached reads. Bumped even
+  // on error, since a write can fail part-way after some rows were already written.
+  if (body && WRITE_ACTIONS.indexOf(body.action) !== -1) {
+    try { bumpDataVersion(); } catch (e) { /* worst case: reads stay stale until DATA_CACHE_TTL_SECONDS */ }
   }
   return ContentService
     .createTextOutput(JSON.stringify(result))
@@ -617,24 +663,25 @@ function getConfig() {
  */
 function getStudents(cohort) {
   if (!cohort) return { error: 'cohort parameter required' };
+  return getCached('students_v1:' + cohort, function () {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('Students');
+    var data = sheet.getDataRange().getValues();
+    var students = [];
 
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('Students');
-  var data = sheet.getDataRange().getValues();
-  var students = [];
-
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][1]) === String(cohort)) {
-      students.push({
-        id: String(data[i][0]),
-        cohort: String(data[i][1]),
-        name: data[i][2],
-        email: data[i][3] || ''
-      });
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1]) === String(cohort)) {
+        students.push({
+          id: String(data[i][0]),
+          cohort: String(data[i][1]),
+          name: data[i][2],
+          email: data[i][3] || ''
+        });
+      }
     }
-  }
 
-  return { cohort: cohort, students: students };
+    return { cohort: cohort, students: students };
+  }, DATA_CACHE_TTL_SECONDS);
 }
 
 /**
@@ -643,7 +690,10 @@ function getStudents(cohort) {
  */
 function getRatings(studentId, cohort) {
   if (!studentId) return { error: 'student parameter required' };
+  return getCached('ratings_v1:' + studentId, function () { return computeRatings_(studentId); }, DATA_CACHE_TTL_SECONDS);
+}
 
+function computeRatings_(studentId) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
 
@@ -735,7 +785,10 @@ function getFullInit() {
  */
 function getCohortOverview(cohort) {
   if (!cohort) return { error: 'cohort parameter required' };
+  return getCached('cohortOverview_v1:' + cohort, function () { return computeCohortOverview_(cohort); }, DATA_CACHE_TTL_SECONDS);
+}
 
+function computeCohortOverview_(cohort) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // Get student list
@@ -798,6 +851,10 @@ function getCohortOverview(cohort) {
  */
 function getHours(studentId) {
   if (!studentId) return { error: 'student parameter required' };
+  return getCached('hours_v1:' + studentId, function () { return computeHours_(studentId); }, DATA_CACHE_TTL_SECONDS);
+}
+
+function computeHours_(studentId) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('Sessions');
   var data = sheet.getDataRange().getValues();
@@ -849,6 +906,10 @@ var HOURS_CATEGORY_KEYS = ['adultDxObs','adultDxTest','paedDxObs','paedDxTest',
  */
 function getCohortHours(cohort) {
   if (!cohort) return { error: 'cohort parameter required' };
+  return getCached('cohortHours_v1:' + cohort, function () { return computeCohortHours_(cohort); }, DATA_CACHE_TTL_SECONDS);
+}
+
+function computeCohortHours_(cohort) {
   var studentsResult = getStudents(cohort);
   var studentIds = studentsResult.students.map(function(s) { return s.id; });
   var studentMap = {};
@@ -907,6 +968,10 @@ function getCohortHours(cohort) {
  */
 function getCohortSessions(cohort) {
   if (!cohort) return { error: 'cohort parameter required' };
+  return getCached('cohortSessions_v1:' + cohort, function () { return computeCohortSessions_(cohort); }, DATA_CACHE_TTL_SECONDS);
+}
+
+function computeCohortSessions_(cohort) {
   var studentsResult = getStudents(cohort);
   var studentMap = {};
   studentsResult.students.forEach(function (s) { studentMap[s.id] = s.name; });

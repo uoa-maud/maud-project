@@ -57,7 +57,7 @@ function cohortImportOpenExcelAsSheet(blob, name) {
 }
 
 function runCohortHoursImportNow() {
-  var FILE_ID = '1kKbRixKXir-CfHjHKWeCrfeMIQOdsZiX';
+  var FILE_ID = '15hzfFw69pBEytzNOFpSdqN7ihLQEzhKN';
   var COHORT_YEAR = '2026';
   var result = importCohortHours(FILE_ID, COHORT_YEAR);
   SpreadsheetApp.getUi().alert(result.message);
@@ -252,6 +252,7 @@ function importCohortHours(fileId, cohortYear) {
   });
 
   DriveApp.getFileById(tempBook.getId()).setTrashed(true);
+  bumpDataVersion(); // invalidate cached hours/sessions reads (see Code.gs)
 
   var message = 'Cohort hours import complete.\n\n' +
     'Sessions created: ' + sessionsCreated + '\n' +

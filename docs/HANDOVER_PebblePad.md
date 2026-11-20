@@ -50,7 +50,7 @@ Replace the manual copy-paste step. Options in rough order of feasibility:
 | Approach | How | Notes |
 |----------|-----|-------|
 | **A. PDF attachment** | Form generates PDF → student downloads/attaches to PebblePad workbook | Already partially built (html2pdf.js planned). Manual but structured. |
-| **B. Link embed** | Embed dashboard in PebblePad via iframe | Awaiting whitelist request (UoA IT must whitelist `jakalnz.github.io`). Parked. |
+| **B. Link embed** | Embed dashboard in PebblePad via iframe | Awaiting whitelist request (UoA IT must whitelist `uoa-maud.github.io`). Parked. |
 | **C. PebblePad API** | Push data from Apps Script into PebblePad workbook fields via API | PebblePad has a REST API but requires OAuth2 client credentials from UoA PebblePad admin. Not yet attempted. |
 
 ### The PebblePad workbook structure (from spec doc)

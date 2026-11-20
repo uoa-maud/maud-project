@@ -1434,6 +1434,13 @@ function initGoogleAuth(){
   google.accounts.id.initialize({client_id:CLIENT_ID,callback:handleCredentialResponse,auto_select:true});
   google.accounts.id.renderButton(document.getElementById('gSignInBtn'),{theme:'outline',size:'large',text:'sign_in_with'});
   google.accounts.id.prompt();
+  // Proactively refresh the ID token in the background well before it expires (~1hr),
+  // so a dashboard left open doesn't hit the re-auth overlay on the next supervisor action.
+  setInterval(function(){
+    if(!_idToken || !window.google) return;
+    google.accounts.id.initialize({client_id:CLIENT_ID, callback:function(r){ _idToken = r.credential; }, auto_select:true});
+    google.accounts.id.prompt();
+  }, 45*60*1000);
 }
 
 function doApproveSession(sessionId,name,btn){
