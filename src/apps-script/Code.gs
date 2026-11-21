@@ -33,7 +33,7 @@ var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercon
  * on one day). Returned on every response and shown in the site footer, so a
  * successful deploy can be confirmed at a glance.
  */
-var API_VERSION = '2026.11.21.4';
+var API_VERSION = '2026.11.21.5';
 
 /** Per-execution cache hit/miss counts, returned as `_cache` on every response for testing. */
 var _cacheStats = { hits: 0, misses: 0 };
@@ -957,7 +957,9 @@ function computeHours_(studentId) {
       },
       mnzas:       data[i][31] === true || data[i][31] === 'TRUE',
       approved:    data[i][32] === true || data[i][32] === 'TRUE',
-      approvedBy:  data[i][33] || ''
+      approvedBy:  data[i][33] || '',
+      // When the row was written (form submit time) — the Date column is date-only for most entries
+      submitted:   (data[i][0] instanceof Date) ? Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(data[i][0] || '')
     });
   }
   return { studentId: studentId, sessions: sessions };
@@ -1083,7 +1085,9 @@ function computeCohortSessions_(cohort) {
       },
       mnzas:       data[i][31] === true || data[i][31] === 'TRUE',
       approved:    data[i][32] === true || data[i][32] === 'TRUE',
-      approvedBy:  data[i][33] || ''
+      approvedBy:  data[i][33] || '',
+      // When the row was written (form submit time) — the Date column is date-only for most entries
+      submitted:   (data[i][0] instanceof Date) ? Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(data[i][0] || '')
     });
   }
   return { cohort: cohort, sessions: sessions };
@@ -1156,7 +1160,9 @@ function getSessionDetail(sessionId, auth) {
         },
         mnzas:       data[i][31] === true || data[i][31] === 'TRUE',
         approved:    data[i][32] === true || data[i][32] === 'TRUE',
-        approvedBy:  data[i][33] || ''
+        approvedBy:  data[i][33] || '',
+        // When the row was written (form submit time) — the Date column is date-only for most entries
+        submitted:   (data[i][0] instanceof Date) ? Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(data[i][0] || '')
       };
       break;
     }

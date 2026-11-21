@@ -855,6 +855,16 @@ function refreshSessionTable(){
   var sessions=_hoursStudentSessions;
   var cohortMode=_sessionTableCohortMode;
 
+  /* Session date (date part only — the sheet's Date column has no real time of day) plus, for
+     form entries (SES-/STU-), when it was actually submitted — makes accidental double-submits
+     easy to spot. Imported (IMP-) rows only have the import run's time, so it's not shown. */
+  function sessionDateCell(ses){
+    var d=(ses.date||'').slice(0,10);
+    if(!ses.submitted || !/^(SES|STU)-/.test(ses.sessionId||'')) return d;
+    var sub=ses.submitted.slice(0,10)===d ? ses.submitted.slice(11) : ses.submitted;
+    return d+'<div style="font-size:calc(var(--font-scale,1)*10px);color:var(--text-muted)" title="When this entry was submitted">submitted '+sub+'</div>';
+  }
+
   var filtered=sessions.filter(function(ses){
     if(sessionMnzasOnly && !ses.mnzas) return false;
     if(!sessionFilter) return true;
@@ -868,7 +878,7 @@ function refreshSessionTable(){
   var sorted=filtered.slice().sort(function(a,b){
     var va,vb;
     if(sessionSort.col==='student'){ va=(a.studentName||'').toLowerCase(); vb=(b.studentName||'').toLowerCase(); }
-    else if(sessionSort.col==='date'){ va=a.date; vb=b.date; }
+    else if(sessionSort.col==='date'){ va=(a.date||'').slice(0,10)+(a.submitted||''); vb=(b.date||'').slice(0,10)+(b.submitted||''); }
     else if(sessionSort.col==='supervisor'){ va=(a.sup1||'').toLowerCase(); vb=(b.sup1||'').toLowerCase(); }
     else if(sessionSort.col==='sessionId'){ va=a.sessionId||''; vb=b.sessionId||''; }
     else { va=a.approved?1:0; vb=b.approved?1:0; }
@@ -915,7 +925,7 @@ function refreshSessionTable(){
     html+='<tr>'
       +(cohortMode?('<td><span class="student-name-link" data-student="'+ses.studentId+'" style="cursor:pointer;color:var(--accent-text)">'+(ses.studentName||ses.studentId)+'</span></td>'):'')
       +'<td style="white-space:nowrap;font-size:calc(var(--font-scale,1)*10px);font-family:monospace">'+(ses.sessionId?('<span class="session-id-link" data-session="'+ses.sessionId+'" style="cursor:pointer;color:var(--accent-text)">'+ses.sessionId+'</span>'):'<span style="color:var(--text-muted)">—</span>')+'</td>'
-      +'<td style="white-space:nowrap">'+ses.date+'</td>'
+      +'<td style="white-space:nowrap">'+sessionDateCell(ses)+'</td>'
       +'<td class="hrs-mini">'+(ses.sup1||'')+(ses.sup2?', '+ses.sup2:'')+'</td>'
       +'<td style="text-align:center">'+(ses.mnzas?'<span title="MNZAS member" style="color:var(--green-text);font-size:calc(var(--font-scale,1)*13px)">✓</span>':'<span style="color:var(--text-hint);font-size:calc(var(--font-scale,1)*11px)">—</span>')+'</td>'
       +'<td>'+pair(ses.hrs.adultDxObs,ses.hrs.adultDxTest)+'</td>'
@@ -1966,7 +1976,8 @@ function renderSessionDetailBody(d){
   function row(label,val){ return '<tr><td style="padding:3px 10px 3px 0;color:var(--text-muted);white-space:nowrap;vertical-align:top">'+label+'</td><td style="padding:3px 0">'+val+'</td></tr>'; }
   html+=row('Session ID','<span style="font-family:monospace">'+_sdEsc(s.sessionId)+'</span>');
   html+=row('Student','<strong>'+_sdEsc(s.studentName)+'</strong>');
-  html+=row('Date',_sdEsc(s.date));
+  html+=row('Date',_sdEsc((s.date||'').slice(0,10)));
+  if(s.submitted && /^(SES|STU)-/.test(s.sessionId||'')) html+=row('Submitted',_sdEsc(s.submitted));
   html+=row('Supervisor(s)',_sdEsc(sups));
   html+=row('Location',_sdEsc(s.location||'—'));
   html+=row('Activities',_sdEsc(s.activities||'—'));
