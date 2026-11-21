@@ -33,7 +33,7 @@ var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercon
  * on one day). Returned on every response and shown in the site footer, so a
  * successful deploy can be confirmed at a glance.
  */
-var API_VERSION = '2026.11.21.3';
+var API_VERSION = '2026.11.21.4';
 
 /** Per-execution cache hit/miss counts, returned as `_cache` on every response for testing. */
 var _cacheStats = { hits: 0, misses: 0 };
@@ -42,6 +42,7 @@ var _cacheStats = { hits: 0, misses: 0 };
 function withMeta(result) {
   if (result && typeof result === 'object' && !Array.isArray(result)) {
     result.apiVersion = API_VERSION;
+    result.dataVersion = getDataVersion();
     result._cache = _cacheStats;
   }
   return result;
@@ -300,6 +301,10 @@ function doGet(e) {
       else if (action === 'cohort_sessions') {
         if (auth.role !== 'supervisor') result = { error: 'Supervisor access required' };
         else result = getCohortSessions(e.parameter.cohort);
+      }
+      else if (action === 'cohort_ratings') {
+        if (auth.role !== 'supervisor') result = { error: 'Supervisor access required' };
+        else result = getCohortRatings(e.parameter.cohort);
       }
       else if (action === 'dashboard_init') {
         if (auth.role !== 'supervisor') result = { error: 'Supervisor access required' };
@@ -735,10 +740,29 @@ function getStudents(cohort) {
  */
 function getRatings(studentId, cohort) {
   if (!studentId) return { error: 'student parameter required' };
-  return getCached('ratings_v1:' + studentId, function () { return computeRatings_(studentId); }, DATA_CACHE_TTL_SECONDS);
+  return getCached('ratings_v1:' + studentId, function () {
+    var idSet = {};
+    idSet[String(studentId)] = true;
+    return { studentId: studentId, ratings: readRatingRows_(idSet) };
+  }, DATA_CACHE_TTL_SECONDS);
 }
 
-function computeRatings_(studentId) {
+/**
+ * Returns every rating for every student in a cohort in one call (each row has
+ * studentId), so the dashboard can prefetch a whole cohort in the background
+ * instead of one round trip per student.
+ */
+function getCohortRatings(cohort) {
+  if (!cohort) return { error: 'cohort parameter required' };
+  return getCached('cohortRatings_v1:' + cohort, function () {
+    var idSet = {};
+    (getStudents(cohort).students || []).forEach(function (s) { idSet[String(s.id)] = true; });
+    return { cohort: cohort, ratings: readRatingRows_(idSet) };
+  }, DATA_CACHE_TTL_SECONDS);
+}
+
+/** Reads Ratings rows whose StudentID is in idSet ({studentId: true}), with session dates attached. */
+function readRatingRows_(idSet) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
 
@@ -763,7 +787,7 @@ function computeRatings_(studentId) {
 
   // Ratings schema: Timestamp|SessionID|StudentID|ClinicType|Milestone|SkillID|Rating|IsPriority|IsStrength|Comment
   for (var i = 1; i < data.length; i++) {
-    if (String(data[i][2]) === String(studentId)) {
+    if (idSet[String(data[i][2])]) {
       var sessionId = String(data[i][1]);
       ratings.push({
         timestamp:  data[i][0],
@@ -781,7 +805,7 @@ function computeRatings_(studentId) {
     }
   }
 
-  return { studentId: studentId, ratings: ratings };
+  return ratings;
 }
 
 /**

@@ -634,6 +634,77 @@ let cohortHoursData={}; // cohort → [{studentId,studentName,totals}]
 let cohortSessionsData={}; // cohort → [{studentId,studentName,sessionId,...}] (all sessions, supervisor-only)
 let supervisorName=localStorage.getItem('maud_supervisor')||'';
 
+let ratingsLoaded={}; // studentId → true once ratingsData holds full per-session ratings (not just the overview summary)
+let cohortInitCache={}; // cohort → dashboard_init payload, so switching back to a cohort doesn't refetch
+let _cohortSessionsPending={}, _cohortRatingsPending={}; // cohort → in-flight Promise (dedupes prefetch + user clicks)
+let _loadedDataVersion=null; // server dataVersion the in-memory data was loaded at
+
+/* Cheap check (reads no sheets) run when the tab regains focus and every 45 min: if anyone
+   has changed the sheet since our data was loaded, drop the in-memory copies and quietly
+   re-prefetch the current cohort. Doesn't re-render — the next click picks up fresh data. */
+function checkForDataChanges(){
+  if(!API_URL||usingDemo||!_loadedDataVersion) return;
+  fetch(API_URL+'?action=version')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.dataVersion||d.dataVersion===_loadedDataVersion) return;
+      _loadedDataVersion=d.dataVersion;
+      cohortInitCache={}; hoursData={}; cohortSessionsData={}; cohortHoursData={}; ratingsLoaded={};
+      prefetchCohort(currentCohort);
+    })
+    .catch(function(){ /* offline or cold-start hiccup — try again next time */ });
+}
+document.addEventListener('visibilitychange', function(){ if(!document.hidden) checkForDataChanges(); });
+
+/* Supervisor-only background prefetch of a whole cohort (all sessions + all ratings, two calls)
+   right after the cohort renders, so switching student or Skills/Hours afterwards needs no
+   round trip. A click that lands before the prefetch finishes waits on it instead of refetching. */
+function prefetchCohort(cohort){
+  if(!API_URL||usingDemo||_userRole!=='supervisor') return;
+  if(!cohortSessionsData[cohort]) fetchCohortSessions(cohort);
+  if((studentsData[cohort]||[]).some(function(s){ return !ratingsLoaded[s.id]; })) fetchCohortRatings(cohort);
+}
+
+function fetchCohortSessions(cohort){
+  if(!_cohortSessionsPending[cohort]){
+    _cohortSessionsPending[cohort]=fetch(API_URL+'?action=cohort_sessions&cohort='+cohort+'&token='+encodeURIComponent(_idToken||''))
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d.error) throw new Error(d.error);
+        var sessions=d.sessions||[];
+        cohortSessionsData[cohort]=sessions;
+        // Seed per-student hours from the same rows (same fields as the hours endpoint)
+        (studentsData[cohort]||[]).forEach(function(s){
+          if(!hoursData[s.id]) hoursData[s.id]=sessions.filter(function(ses){ return ses.studentId===s.id; });
+        });
+        return sessions;
+      })
+      .catch(function(e){ console.error('Cohort sessions fetch failed:',e); return []; })
+      .then(function(sessions){ delete _cohortSessionsPending[cohort]; return sessions; });
+  }
+  return _cohortSessionsPending[cohort];
+}
+
+function fetchCohortRatings(cohort){
+  if(!_cohortRatingsPending[cohort]){
+    _cohortRatingsPending[cohort]=fetch(API_URL+'?action=cohort_ratings&cohort='+cohort+'&token='+encodeURIComponent(_idToken||''))
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d.error) throw new Error(d.error);
+        var byStudent={};
+        (d.ratings||[]).forEach(function(row){ (byStudent[row.studentId]=byStudent[row.studentId]||[]).push(row); });
+        (studentsData[cohort]||[]).forEach(function(s){
+          if(ratingsLoaded[s.id]) return;
+          ratingsData[s.id]=buildRatingsByCtBySkill(byStudent[s.id]||[]);
+          ratingsLoaded[s.id]=true;
+        });
+      })
+      .catch(function(e){ console.error('Cohort ratings prefetch failed:',e); })
+      .then(function(){ delete _cohortRatingsPending[cohort]; });
+  }
+  return _cohortRatingsPending[cohort];
+}
+
 function loadCohortSessions(cohort, callback){
   if(cohortSessionsData[cohort]){ callback(cohortSessionsData[cohort]); return; }
   if(!API_URL||usingDemo){
@@ -647,18 +718,7 @@ function loadCohortSessions(cohort, callback){
     cohortSessionsData[cohort]=all;
     callback(all); return;
   }
-  fetch(API_URL+'?action=cohort_sessions&cohort='+cohort+'&token='+encodeURIComponent(_idToken||''))
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.error){ console.error('Cohort sessions API error:',d.error); cohortSessionsData[cohort]=[]; }
-      else cohortSessionsData[cohort]=d.sessions||[];
-      callback(cohortSessionsData[cohort]);
-    })
-    .catch(function(e){
-      console.error('Cohort sessions fetch failed:',e);
-      cohortSessionsData[cohort]=[];
-      callback([]);
-    });
+  fetchCohortSessions(cohort).then(callback);
 }
 
 function loadStudentHours(studentId, callback){
@@ -667,6 +727,9 @@ function loadStudentHours(studentId, callback){
     hoursData[studentId]=generateDemoHours(studentId);
     callback(hoursData[studentId]); return;
   }
+  // Cohort prefetch in flight — wait for it rather than starting a second round trip
+  var pending=_cohortSessionsPending[currentCohort];
+  if(pending){ pending.then(function(){ loadStudentHours(studentId, callback); }); return; }
   fetch(API_URL+'?action=hours&student='+studentId+'&token='+encodeURIComponent(_idToken||''))
     .then(function(r){return r.json();})
     .then(function(d){
@@ -1025,6 +1088,14 @@ function removeSessionFromCaches(sessionId){
   Object.keys(cohortSessionsData).forEach(function(c){
     cohortSessionsData[c]=(cohortSessionsData[c]||[]).filter(function(s){return s.sessionId!==sessionId;});
   });
+  // Drop the deleted session's ratings too, so they don't linger in sparklines
+  Object.keys(ratingsData).forEach(function(sid){
+    Object.values(ratingsData[sid]||{}).forEach(function(skMap){
+      Object.keys(skMap).forEach(function(skId){
+        skMap[skId]=skMap[skId].filter(function(r){ return r.sessionId!==sessionId; });
+      });
+    });
+  });
   cohortHoursData={};
 }
 
@@ -1194,6 +1265,8 @@ function populateStudentSelect(students){
 /* Applies a dashboard_init/full_init-shaped payload ({students, overview}) for `cohort`
    to the dashboard's in-memory data and re-renders. Shared by loadCohort() and init(). */
 function applyCohortInitData(cohort, data){
+  cohortInitCache[cohort]=data;
+  if(data.dataVersion) _loadedDataVersion=data.dataVersion;
   var students=data.students||[];
   studentsData[cohort]=students;
   if(students.length===0){
@@ -1204,6 +1277,7 @@ function applyCohortInitData(cohort, data){
   document.getElementById('demoBanner').classList.remove('visible');
   populateStudentSelect(students);
   (data.overview||[]).forEach(function(stu){
+    if(ratingsLoaded[stu.studentId]) return; // keep full per-session data over the overview summary
     // Convert flat API ratings to the session-array format expected by the dashboard
     // API returns: { studentId, milestones: { ms: { clinicType: { skillId: { rating, isPriority, isStrength } } } } }
     var byCtBySkill={};
@@ -1225,11 +1299,13 @@ function applyCohortInitData(cohort, data){
     ratingsData[stu.studentId]=byCtBySkill;
   });
   render();
+  prefetchCohort(cohort);
 }
 
 function loadCohort(cohort){
   currentCohort=cohort;
   if(!API_URL){ loadDemoForCohort(cohort); return; }
+  if(cohortInitCache[cohort]){ applyCohortInitData(cohort, cohortInitCache[cohort]); return; }
   document.getElementById('dashboard').innerHTML='<div class="loading">Loading…</div>';
   // Single combined call (students + cohort overview ratings) instead of two serial round trips
   fetch(API_URL+'?action=dashboard_init&cohort='+cohort+'&token='+encodeURIComponent(_idToken||''))
@@ -1252,44 +1328,57 @@ function selectStudent(studentId, viewOverride){
   // If overview, cohort sessions, or no API/demo, just render — those views load their own data
   if(studentId==='__overview'||studentId==='__cohort_sessions'||!API_URL||usingDemo){ render(); return; }
 
-  // If already loaded full session data (has entries with sessionId), render immediately
-  var existing=ratingsData[studentId]||{};
-  var firstCt=Object.values(existing)[0]||{};
-  var firstSkill=Object.values(firstCt)[0]||[];
-  if(firstSkill.length>0&&firstSkill[0].sessionId){ render(); return; }
+  // Full per-session ratings already loaded (by an earlier visit or the cohort prefetch)
+  if(ratingsLoaded[studentId]){ render(); return; }
 
-  // Fetch full per-session ratings
   document.getElementById('dashboard').innerHTML='<div class="loading">Loading student data…</div>';
+  // Cohort prefetch in flight — wait for it rather than starting a second round trip
+  var pending=_cohortRatingsPending[currentCohort];
+  if(pending){
+    pending.then(function(){ if(ratingsLoaded[studentId]) render(); else fetchStudentRatings(studentId); });
+    return;
+  }
+  fetchStudentRatings(studentId);
+}
+
+/* Fetch one student's full per-session ratings, then render. Falls back to overview data on error. */
+function fetchStudentRatings(studentId){
   fetch(API_URL+'?action=ratings&student='+encodeURIComponent(studentId)+'&cohort='+currentCohort+'&token='+encodeURIComponent(_idToken||''))
     .then(function(r){ return r.json(); })
     .then(function(data){
-      var rows=data.ratings||[];
-      var byCtBySkill={};
-      CLINIC_TYPES.forEach(function(ct){ byCtBySkill[ct]={}; });
-      rows.forEach(function(row){
-        var ct=row.clinicType, skId=row.skillId;
-        if(!byCtBySkill[ct]) byCtBySkill[ct]={};
-        if(!byCtBySkill[ct][skId]) byCtBySkill[ct][skId]=[];
-        byCtBySkill[ct][skId].push({
-          session: row.sessionId,
-          sessionId: row.sessionId,
-          milestone: row.milestone,
-          rating: Number(row.rating)||0,
-          isPriority: row.isPriority===true||row.isPriority==='TRUE',
-          isStrength: row.isStrength===true||row.isStrength==='TRUE',
-          date: row.date||row.timestamp||''
-        });
-      });
-      // Sort each skill's entries by date ascending
-      Object.values(byCtBySkill).forEach(function(skMap){
-        Object.values(skMap).forEach(function(arr){
-          arr.sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
-        });
-      });
-      ratingsData[studentId]=byCtBySkill;
+      if(data.error) throw new Error(data.error);
+      ratingsData[studentId]=buildRatingsByCtBySkill(data.ratings||[]);
+      ratingsLoaded[studentId]=true;
       render();
     })
     .catch(function(){ render(); }); // fall back to overview data on error
+}
+
+/* Converts flat API rating rows into {clinicType: {skillId: [entries sorted by date]}}. */
+function buildRatingsByCtBySkill(rows){
+  var byCtBySkill={};
+  CLINIC_TYPES.forEach(function(ct){ byCtBySkill[ct]={}; });
+  rows.forEach(function(row){
+    var ct=row.clinicType, skId=row.skillId;
+    if(!byCtBySkill[ct]) byCtBySkill[ct]={};
+    if(!byCtBySkill[ct][skId]) byCtBySkill[ct][skId]=[];
+    byCtBySkill[ct][skId].push({
+      session: row.sessionId,
+      sessionId: row.sessionId,
+      milestone: row.milestone,
+      rating: Number(row.rating)||0,
+      isPriority: row.isPriority===true||row.isPriority==='TRUE',
+      isStrength: row.isStrength===true||row.isStrength==='TRUE',
+      date: row.date||row.timestamp||''
+    });
+  });
+  // Sort each skill's entries by date ascending
+  Object.values(byCtBySkill).forEach(function(skMap){
+    Object.values(skMap).forEach(function(arr){
+      arr.sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
+    });
+  });
+  return byCtBySkill;
 }
 
 function init(){
@@ -1440,6 +1529,7 @@ function initGoogleAuth(){
     if(!_idToken || !window.google) return;
     google.accounts.id.initialize({client_id:CLIENT_ID, callback:function(r){ _idToken = r.credential; }, auto_select:true});
     google.accounts.id.prompt();
+    checkForDataChanges();
   }, 45*60*1000);
 }
 
@@ -2141,6 +2231,8 @@ function doImportPlacement(studentId, clinicName, b64, filename, btn){
       );
       // Reload cohort session data so the sessions table reflects the import
       cohortSessionsData = {};
+      delete hoursData[studentId]; // seeded by the cohort prefetch — refetch to include the import
+      cohortHoursData = {};
       if(currentStudent === '__cohort_sessions'){ renderSessionsCohort(); }
     } else {
       bpiSetStatus(data.message || 'Import failed.', 'error');

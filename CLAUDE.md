@@ -66,6 +66,7 @@ Three cards linking to the three tools.
 - Supervisor with a student record sees a "View as: Supervisor / Student" toggle post-auth
 - Data display (sparklines, hours gauges, skills tables) is wired to live `ratings`/`cohort_overview`/`hours` API responses, falling back to generated demo data when the API is unreachable or a cohort has no real students yet
 - Initial cohort load uses the combined `dashboard_init` endpoint (one round trip instead of three serial ones) for faster load time
+- After a cohort renders, supervisors get a background prefetch (`prefetchCohort`: `cohort_sessions` + `cohort_ratings`) that fills `hoursData`/`ratingsData` for every student, so switching student or Skills/Hours is instant; clicks during the prefetch wait on the in-flight promise. `ratingsLoaded[id]` marks full per-session ratings (vs the overview summary); `cohortInitCache` makes switching back to a cohort instant
 
 ### Session Feedback & Assessment (`src/form/index.html`)
 - Full supervisor form: student select, date, supervisors, location
@@ -322,6 +323,7 @@ All GET endpoints accept an optional `token` query param. Role check must use PO
 - `GET ?action=students&cohort=2025` — returns student list for cohort
 - `GET ?action=ratings&student=STU001&cohort=2025` — returns all ratings for student
 - `GET ?action=cohort_overview&cohort=2025` — returns summary for all students in cohort
+- `GET ?action=cohort_ratings&cohort=2025` — supervisor-only; every rating row (with `studentId`) for all students in the cohort, used by the dashboard's background prefetch
 - `GET ?action=dashboard_init&cohort=2025` — combined `{cohorts, skills, students, overview}` in one round trip (replaces separate config/students/cohort_overview calls on dashboard load)
 - `POST {action:'role', token}` — returns `{ role, email, name, studentId, cohort }`
 - `POST {action:'submitSession', token, ...}` — supervisor form submission. Rejects with an error (no row written) if a session with the same student, same ID prefix (`SES-`), same date, and identical hour values was already submitted in the last 3 minutes — guards against accidental double-submits (double-click, retry, stale draft resubmit) without blocking two genuinely different sessions on the same calendar day

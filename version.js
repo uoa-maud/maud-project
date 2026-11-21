@@ -4,7 +4,7 @@
  * On pages that define API_URL it also shows the live Apps Script API_VERSION, and the
  * tooltip shows when the sheet data last changed (useful for checking the cache).
  */
-var SITE_VERSION = '2026.11.21';
+var SITE_VERSION = '2026.11.21.2';
 
 (function () {
   function render() {
