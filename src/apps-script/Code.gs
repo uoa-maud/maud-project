@@ -33,7 +33,7 @@ var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercon
  * on one day). Returned on every response and shown in the site footer, so a
  * successful deploy can be confirmed at a glance.
  */
-var API_VERSION = '2026.11.21.5';
+var API_VERSION = '2026.11.21.6';
 
 /** Per-execution cache hit/miss counts, returned as `_cache` on every response for testing. */
 var _cacheStats = { hits: 0, misses: 0 };
@@ -137,7 +137,8 @@ function installChangeTrigger() {
  */
 function getCached(key, computeFn, ttlSeconds) {
   var cache = CacheService.getScriptCache();
-  var versionedKey = key + '@' + getDataVersion();
+  // API_VERSION in the key too, so a code deploy never serves results shaped by the old code
+  var versionedKey = key + '@' + API_VERSION + '@' + getDataVersion();
   var hit = cache.get(versionedKey);
   if (hit) {
     try { var parsed = JSON.parse(hit); _cacheStats.hits++; return parsed; } catch (e) { /* fall through to recompute */ }
