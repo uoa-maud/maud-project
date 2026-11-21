@@ -915,7 +915,10 @@ function handleCredentialResponse(response){
       document.getElementById('authGate').style.display='none';
       document.getElementById('appShell').style.display='block';
       document.getElementById('userChip').textContent='Signed in as '+data.name+' ('+data.email+')';
-      document.getElementById('sessionDate').valueAsDate=new Date();
+      // Local date, not valueAsDate=new Date() — that uses the UTC date, which in NZ is still
+      // yesterday until midday, so morning entries defaulted to the previous day.
+      var t=new Date();
+      document.getElementById('sessionDate').value=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
       initSig();
       loadConfig();
       checkForDraft();

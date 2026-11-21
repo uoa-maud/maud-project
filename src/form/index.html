@@ -1616,7 +1616,12 @@ function submitForm() {
 }
 
 /* ---- INIT ---- */
-document.getElementById('sessionDate').valueAsDate = new Date();
+// Local date, not valueAsDate=new Date() — that uses the UTC date, which in NZ is still
+// yesterday until midday, so morning submissions defaulted to the previous day.
+(function(){
+  var t = new Date();
+  document.getElementById('sessionDate').value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+})();
 
 const DEFAULT_TITLE = document.title;
 function updateTabTitle(){
