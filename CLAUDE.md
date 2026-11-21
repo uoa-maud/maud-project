@@ -111,7 +111,7 @@ Every page shows a small footer `Site vX · API vY` (from `version.js` at the re
 
 ## Caching (Apps Script)
 
-Reads are cached in `CacheService`, keyed by a `dataVersion` stored in Script Properties. Every `doPost` write, the cohort importer, and every manual cell edit (`onEdit` simple trigger) bumps `dataVersion`, invalidating all cached reads. Manual row deletions don't fire `onEdit`, so those can be stale for up to 30 min (`CACHE_TTL_SECONDS` / `DATA_CACHE_TTL_SECONDS`). Every API response includes `_cache: {hits, misses}` for that request.
+Reads are cached in `CacheService`, keyed by a `dataVersion` stored in Script Properties. Every `doPost` write, the cohort importer, every manual cell edit (`onEdit` simple trigger) and every structural change — row/column inserts, deletes, sorts, tab changes (`onSheetChange`, an installable "On change" trigger) — bumps `dataVersion`, invalidating all cached reads. TTL is 6 hours (CacheService max), only a backstop for changes no trigger sees (e.g. another script writing to the sheet). The installable trigger is **not** created by `clasp push`: run `installChangeTrigger()` once from the Apps Script editor (safe to re-run); check it exists under Triggers (⏰) in the editor sidebar. Every API response includes `_cache: {hits, misses}` for that request.
 
 To test: hover the footer to see "Data last changed" (it updates after a submit or a sheet edit); in DevTools → Network, reload the dashboard twice — the `init` response's `_cache` should go from mostly misses to all hits.
 

@@ -33,7 +33,7 @@ var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercon
  * on one day). Returned on every response and shown in the site footer, so a
  * successful deploy can be confirmed at a glance.
  */
-var API_VERSION = '2026.11.21.2';
+var API_VERSION = '2026.11.21.3';
 
 /** Per-execution cache hit/miss counts, returned as `_cache` on every response for testing. */
 var _cacheStats = { hits: 0, misses: 0 };
@@ -70,20 +70,14 @@ function verifyToken(idToken) {
 }
 
 /**
- * CacheService TTL for directory/config lookups (Students, Supervisors, Config, Skills).
- * Same as the data TTL: edits to those tabs fire onEdit and bump the data version,
- * so a short TTL only caused needless misses.
+ * CacheService TTLs (6 hours, the CacheService maximum). Can be this long because
+ * every write path bumps the data version (see bumpDataVersion) — web-app writes,
+ * the cohort importer, onEdit (cell edits) and onSheetChange (row/column/tab changes)
+ * — which makes all older cache entries unreachable immediately. The TTL is only a
+ * backstop for changes no trigger sees (e.g. another script writing to the sheet).
  */
-var CACHE_TTL_SECONDS = 1800;
-
-/**
- * TTL for cached Sessions/Ratings-derived results (hours, ratings, overviews).
- * Can be long because every write bumps the data version (see bumpDataVersion),
- * which makes all older cache entries unreachable immediately. The TTL only
- * bounds staleness for sheet changes that don't fire onEdit (e.g. deleting
- * rows by hand in the Sheets UI).
- */
-var DATA_CACHE_TTL_SECONDS = 1800;
+var CACHE_TTL_SECONDS = 21600;
+var DATA_CACHE_TTL_SECONDS = 21600;
 
 var _dataVersion = null;
 
@@ -110,6 +104,29 @@ function bumpDataVersion() {
  */
 function onEdit(e) {
   bumpDataVersion();
+}
+
+/**
+ * Installable "On change" trigger handler: catches structural changes onEdit misses
+ * (inserting/deleting rows or columns, sorting, adding/removing tabs).
+ * Must be installed once via installChangeTrigger() — clasp push doesn't create triggers.
+ */
+function onSheetChange(e) {
+  bumpDataVersion();
+}
+
+/**
+ * Run once from the Apps Script editor (select it, click Run) to install the
+ * onSheetChange trigger. Safe to re-run: removes any existing copy first.
+ */
+function installChangeTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'onSheetChange') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('onSheetChange')
+    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .onChange()
+    .create();
 }
 
 /**
