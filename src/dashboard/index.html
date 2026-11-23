@@ -1585,11 +1585,11 @@ function handleReauthResponse(response){
 
 <!-- Import Block Placement Modal -->
 <div id="importPlacementOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:12px;padding:24px;width:min(480px,92vw);box-shadow:0 8px 32px rgba(0,0,0,.18);position:relative">
+  <div id="bpiDialog" style="background:var(--surface);border-radius:12px;padding:24px;width:min(480px,92vw);max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18);position:relative">
     <h2 style="font-size:calc(var(--font-scale,1)*16px);font-weight:600;margin:0 0 4px;color:var(--text)">Import block placement hours</h2>
-    <p style="font-size:calc(var(--font-scale,1)*12px);color:var(--text-muted);margin:0 0 18px">Upload the student's Block Placement Template Excel file. Hours are written directly to the Sessions tab — already-imported dates are skipped automatically.</p>
+    <p style="font-size:calc(var(--font-scale,1)*12px);color:var(--text-muted);margin:0 0 18px">Upload the student's Block Placement Template Excel file. You'll see every date before anything is saved — dates already imported, changed since the last import, or also logged elsewhere are flagged so you can choose what to do.</p>
 
-    <div style="display:flex;flex-direction:column;gap:14px">
+    <div id="bpiForm" style="display:flex;flex-direction:column;gap:14px">
       <div>
         <label style="font-size:calc(var(--font-scale,1)*11px);color:var(--text-hint);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Student</label>
         <select id="bpiStudentSelect" style="width:100%;padding:7px 10px;font-size:calc(var(--font-scale,1)*13px);border:0.5px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:var(--font)"></select>
@@ -1606,16 +1606,21 @@ function handleReauthResponse(response){
       </div>
     </div>
 
+    <div id="bpiPreview" style="display:none"></div>
+
     <div id="bpiStatus" style="display:none;margin-top:14px;padding:10px 12px;border-radius:var(--radius);font-size:calc(var(--font-scale,1)*12px)"></div>
 
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
-      <button onclick="closeImportPlacementModal()"
+      <button id="bpiCancelBtn" onclick="closeImportPlacementModal()"
         style="padding:8px 18px;border:0.5px solid var(--border);border-radius:var(--radius);background:transparent;color:var(--text-muted);font-family:var(--font);font-size:calc(var(--font-scale,1)*13px);cursor:pointer">
         Cancel
       </button>
-      <button id="bpiSubmitBtn" onclick="submitImportPlacement()"
+      <button id="bpiBackBtn" onclick="bpiShowForm()" style="display:none;padding:8px 18px;border:0.5px solid var(--border);border-radius:var(--radius);background:transparent;color:var(--text-muted);font-family:var(--font);font-size:calc(var(--font-scale,1)*13px);cursor:pointer">
+        &larr; Back
+      </button>
+      <button id="bpiSubmitBtn" onclick="bpiPrimaryAction()"
         style="padding:8px 18px;border:none;border-radius:var(--radius);background:var(--accent);color:#fff;font-family:var(--font);font-size:calc(var(--font-scale,1)*13px);cursor:pointer;font-weight:500">
-        Import hours
+        Check file
       </button>
     </div>
   </div>
@@ -1759,9 +1764,7 @@ function openImportPlacementModal(){
   });
   document.getElementById('bpiClinicName').value = '';
   document.getElementById('bpiFileInput').value = '';
-  document.getElementById('bpiStatus').style.display = 'none';
-  document.getElementById('bpiSubmitBtn').disabled = false;
-  document.getElementById('bpiSubmitBtn').textContent = 'Import hours';
+  bpiShowForm();
   var ov = document.getElementById('importPlacementOverlay');
   ov.style.display = 'flex';
 }
@@ -2187,6 +2190,38 @@ function bpiSetStatus(msg, type){
   el.style.color = type === 'success' ? 'var(--green-text)' : type === 'error' ? 'var(--red-text)' : 'var(--accent-text)';
 }
 
+/* Block placement import is two steps: "Check file" sends the file for a
+   read-only preview (previewBlockPlacement), which classifies every date as
+   new / unchanged / changed and lists other entries on the same date. The
+   supervisor picks Import / Update / Skip per date, then "Import selected"
+   commits only those choices (importBlockPlacement with previewId). */
+var _bpiPreview = null; // { studentId, previewId, dates }
+
+function bpiEsc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function bpiShowForm(){
+  _bpiPreview = null;
+  document.getElementById('bpiForm').style.display = 'flex';
+  document.getElementById('bpiPreview').style.display = 'none';
+  document.getElementById('bpiPreview').innerHTML = '';
+  document.getElementById('bpiDialog').style.width = 'min(480px,92vw)';
+  document.getElementById('bpiStatus').style.display = 'none';
+  document.getElementById('bpiBackBtn').style.display = 'none';
+  document.getElementById('bpiCancelBtn').textContent = 'Cancel';
+  var btn = document.getElementById('bpiSubmitBtn');
+  btn.style.display = '';
+  btn.disabled = false;
+  btn.textContent = 'Check file';
+}
+
+function bpiPrimaryAction(){
+  if(_bpiPreview) bpiCommit(); else submitImportPlacement();
+}
+
 function submitImportPlacement(){
   var studentId  = document.getElementById('bpiStudentSelect').value;
   var clinicName = document.getElementById('bpiClinicName').value.trim();
@@ -2198,61 +2233,152 @@ function submitImportPlacement(){
 
   var btn = document.getElementById('bpiSubmitBtn');
   btn.disabled = true;
-  btn.textContent = 'Uploading…';
+  btn.textContent = 'Checking…';
   bpiSetStatus('Reading file…', 'info');
 
   var reader = new FileReader();
   reader.onload = function(e){
-    // Strip the data-URL prefix to get raw base64
-    var b64 = e.target.result.split(',')[1];
-    bpiSetStatus('Sending to Apps Script — this may take 20–30 seconds…', 'info');
-    btn.textContent = 'Importing…';
-    doImportPlacement(studentId, clinicName, b64, file.name, btn);
+    var b64 = e.target.result.split(',')[1]; // strip the data-URL prefix
+    bpiSetStatus('Checking the file against existing sessions — this may take 20–30 seconds…', 'info');
+    bpiPost({
+      action: 'previewBlockPlacement', studentId: studentId, clinicName: clinicName,
+      fileBase64: b64, filename: file.name
+    }, function(data){
+      btn.disabled = false;
+      btn.textContent = 'Check file';
+      if(!data.success){ bpiSetStatus(data.error || data.message || 'Could not read the file.', 'error'); return; }
+      _bpiPreview = { studentId: studentId, previewId: data.previewId, dates: data.dates };
+      bpiRenderPreview(data);
+    });
   };
   reader.readAsDataURL(file);
 }
 
-function doImportPlacement(studentId, clinicName, b64, filename, btn){
-  fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({
-      action:    'importBlockPlacement',
-      token:     _idToken,
-      studentId: studentId,
-      clinicName: clinicName,
-      fileBase64: b64,
-      filename:   filename
+/* POST with the shared re-auth handling; onDone gets the parsed response. */
+function bpiPost(payload, onDone){
+  payload.token = _idToken;
+  fetch(API_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(payload) })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(data.error === 'Supervisor access required'){
+        showReauthOverlay(function(){ bpiPost(payload, onDone); });
+        return;
+      }
+      onDone(data);
     })
-  })
-  .then(function(r){ return r.json(); })
-  .then(function(data){
-    if(data.error === 'Supervisor access required'){
-      showReauthOverlay(function(){ doImportPlacement(studentId, clinicName, b64, filename, btn); });
+    .catch(function(err){ onDone({ success:false, error:'Network error: ' + err.message }); });
+}
+
+function bpiRenderPreview(data){
+  var dates = data.dates;
+  var counts = { 'new':0, changed:0, unchanged:0 }, overlapCount = 0;
+  dates.forEach(function(d){ counts[d.status]++; if(d.overlaps.length) overlapCount++; });
+
+  var small = 'font-size:calc(var(--font-scale,1)*12px)';
+  var th = 'text-align:left;padding:6px 8px;font-weight:500;color:var(--text-hint);font-size:calc(var(--font-scale,1)*11px);text-transform:uppercase;letter-spacing:.4px;border-bottom:0.5px solid var(--border)';
+  var td = 'padding:7px 8px;border-bottom:0.5px solid var(--border);vertical-align:top;' + small;
+  var sel = 'padding:4px 6px;border:0.5px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:var(--font);' + small;
+
+  var summary = [];
+  summary.push(counts['new'] + ' new');
+  if(counts.changed) summary.push(counts.changed + ' changed since last import');
+  if(counts.unchanged) summary.push(counts.unchanged + ' already imported');
+  if(data.emptyDates) summary.push(data.emptyDates + ' empty date column' + (data.emptyDates !== 1 ? 's' : '') + ' ignored');
+
+  var h = '<p style="' + small + ';color:var(--text-muted);margin:0 0 8px">' + bpiEsc(summary.join(' · ')) + '</p>';
+  if(overlapCount){
+    h += '<p style="' + small + ';margin:0 0 8px;padding:8px 10px;border-radius:var(--radius);background:var(--amber-bg,#fff4e0);color:var(--amber-text,#8a5a00)">' +
+      overlapCount + ' date' + (overlapCount !== 1 ? 's have' : ' has') + ' other hours already logged for this student (shown under the date). ' +
+      'If the student already logged this placement day themselves, choose <b>Skip</b> to avoid counting it twice.</p>';
+  }
+  h += '<table style="width:100%;border-collapse:collapse"><thead><tr>' +
+    '<th style="' + th + '">Date</th><th style="' + th + '">Clinic</th><th style="' + th + ';text-align:right">Hours</th>' +
+    '<th style="' + th + '">Status</th><th style="' + th + '">Action</th></tr></thead><tbody>';
+
+  dates.forEach(function(d, i){
+    var status, action;
+    if(d.status === 'new'){
+      status = '<span style="color:var(--green-text)">New</span>';
+      action = '<select data-bpi="' + i + '" style="' + sel + '"><option value="import">Import</option><option value="skip">Skip</option></select>';
+    } else if(d.status === 'changed'){
+      status = '<span style="color:var(--amber-text,#8a5a00)">Changed</span><div style="color:var(--text-hint)">was ' + d.existing.total + ' h (' + bpiEsc(d.existing.sessionId) + ')</div>';
+      action = '<select data-bpi="' + i + '" style="' + sel + '"><option value="update">Update to new hours</option><option value="skip">Keep existing</option></select>';
+    } else {
+      status = '<span style="color:var(--text-hint)">Already imported</span>';
+      action = '<span style="color:var(--text-hint)">—</span>';
+    }
+    var place = bpiEsc(d.location || '—') + (d.clinician && d.clinician !== d.location ? '<div style="color:var(--text-hint)">' + bpiEsc(d.clinician) + '</div>' : '');
+    var overlaps = d.overlaps.map(function(o){
+      return '<div style="color:var(--amber-text,#8a5a00)">⚠ Also logged: ' + bpiEsc(o.source) + ', ' + o.total + ' h' +
+        (o.supervisor ? ' — ' + bpiEsc(o.supervisor) : '') + ' <span style="color:var(--text-hint)">(' + bpiEsc(o.sessionId) + ')</span></div>';
+    }).join('');
+    var rowStyle = d.status === 'unchanged' ? ';opacity:.55' : '';
+    h += '<tr style="' + rowStyle + '"><td style="' + td + ';white-space:nowrap">' + bpiEsc(d.date) + overlaps + '</td>' +
+      '<td style="' + td + '">' + place + '</td>' +
+      '<td style="' + td + ';text-align:right">' + d.total + '</td>' +
+      '<td style="' + td + '">' + status + '</td>' +
+      '<td style="' + td + '">' + action + '</td></tr>';
+  });
+  h += '</tbody></table>';
+
+  var pv = document.getElementById('bpiPreview');
+  pv.innerHTML = h;
+  pv.style.display = 'block';
+  pv.querySelectorAll('select[data-bpi]').forEach(function(s){ s.addEventListener('change', bpiUpdateCommitButton); });
+  document.getElementById('bpiForm').style.display = 'none';
+  document.getElementById('bpiDialog').style.width = 'min(820px,94vw)';
+  document.getElementById('bpiStatus').style.display = 'none';
+  document.getElementById('bpiBackBtn').style.display = '';
+  bpiUpdateCommitButton();
+}
+
+function bpiDecisions(){
+  var out = {};
+  document.querySelectorAll('#bpiPreview select[data-bpi]').forEach(function(s){
+    out[_bpiPreview.dates[+s.dataset.bpi].key] = s.value;
+  });
+  return out;
+}
+
+function bpiUpdateCommitButton(){
+  var dec = bpiDecisions(), n = 0;
+  Object.keys(dec).forEach(function(k){ if(dec[k] !== 'skip') n++; });
+  var btn = document.getElementById('bpiSubmitBtn');
+  btn.disabled = n === 0;
+  btn.textContent = n ? 'Import ' + n + ' date' + (n !== 1 ? 's' : '') : 'Nothing to import';
+}
+
+function bpiCommit(){
+  var btn = document.getElementById('bpiSubmitBtn');
+  var back = document.getElementById('bpiBackBtn');
+  var studentId = _bpiPreview.studentId;
+  btn.disabled = true; back.disabled = true;
+  btn.textContent = 'Importing…';
+  bpiSetStatus('Saving to the Sessions tab…', 'info');
+  bpiPost({
+    action: 'importBlockPlacement', studentId: studentId,
+    previewId: _bpiPreview.previewId, decisions: bpiDecisions()
+  }, function(data){
+    back.disabled = false;
+    if(!data.success){
+      btn.disabled = false;
+      bpiUpdateCommitButton();
+      bpiSetStatus('Error: ' + (data.error || data.message || 'Import failed.'), 'error');
       return;
     }
-    btn.disabled = false;
-    btn.textContent = 'Import hours';
-    if(data.error){
-      bpiSetStatus('Error: ' + data.error, 'error');
-    } else if(data.success){
-      bpiSetStatus(
-        data.message + ' Total hours: ' + data.totalHrs + ' hrs.',
-        'success'
-      );
-      // Reload cohort session data so the sessions table reflects the import
-      cohortSessionsData = {};
-      delete hoursData[studentId]; // seeded by the cohort prefetch — refetch to include the import
-      cohortHoursData = {};
-      if(currentStudent === '__cohort_sessions'){ renderSessionsCohort(); }
-    } else {
-      bpiSetStatus(data.message || 'Import failed.', 'error');
-    }
-  })
-  .catch(function(err){
-    btn.disabled = false;
-    btn.textContent = 'Import hours';
-    bpiSetStatus('Network error: ' + err.message, 'error');
+    bpiSetStatus(data.message + ' Hours written: ' + data.totalHrs + ' hrs.', 'success');
+    // Done — only Close/Back remain, so the same preview can't be committed twice
+    _bpiPreview = null;
+    btn.style.display = 'none';
+    back.style.display = 'none';
+    document.getElementById('bpiCancelBtn').textContent = 'Close';
+    document.querySelectorAll('#bpiPreview select').forEach(function(s){ s.disabled = true; });
+    // Reload cached session data so the tables reflect the import
+    cohortSessionsData = {};
+    delete hoursData[studentId]; // seeded by the cohort prefetch — refetch to include the import
+    cohortHoursData = {};
+    if(currentStudent === '__cohort_sessions'){ renderSessionsCohort(); }
+    else if(currentStudent === studentId){ selectStudent(studentId, currentView); }
   });
 }
 

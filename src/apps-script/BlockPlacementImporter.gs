@@ -8,13 +8,9 @@
  * the live Sessions tab using the same column layout as submitSession() and
  * CohortHoursImporter.gs.
  *
- * Rows are tagged with '*BLOCK-PLACEMENT*' in column AH so they are easy to
- * identify and re-running is safe (existing studentId+date pairs from block
- * placements are skipped).
- *
- * Called from doPost() in Code.gs:
- *   POST { action:'importBlockPlacement', token, studentId, clinicName, fileBase64, filename }
- *   Returns { success, sessionsCreated, datesSkipped, totalHrs, message }
+ * Rows are tagged with '*BLOCK-PLACEMENT*' in column AI. A block-placement row
+ * is identified by student + date + clinic location; see the two-step
+ * preview/import flow below for how duplicates are resolved.
  */
 
 // Activity label → { ct: clinic type, sub: sub-type label }
@@ -87,15 +83,39 @@ var BPI_SIMULATION_LABELS = [
 ];
 
 /**
- * Main entry point — called from doPost() in Code.gs.
+ * Two-step import, so duplicates are shown and resolved rather than silently
+ * skipped or double-counted:
  *
- * @param {string} studentId   - Target student ID (from Students tab)
- * @param {string} clinicName  - Placement clinic name (free text)
- * @param {string} fileBase64  - Base64-encoded Excel file content
- * @param {string} filename    - Original filename (used for temp sheet name)
- * @returns {{ success, sessionsCreated, datesSkipped, totalHrs, message }}
+ *   1. POST { action:'previewBlockPlacement', token, studentId, clinicName, fileBase64, filename }
+ *      Parses the file and classifies every date (read-only, not a write action):
+ *        new       — no block-placement row yet for this student + date + clinic
+ *        unchanged — already imported with identical hours (nothing to do)
+ *        changed   — already imported, but the file now has different hours
+ *      Each date also lists `overlaps`: any other Sessions row for the same student
+ *      and date (student self-log STU-, supervisor form SES-, cohort import IMP-, or a
+ *      block placement at another clinic) so possible double-counting is visible.
+ *      The parsed file is cached for 30 min under the returned previewId.
+ *      Returns { success, previewId, dates:[...], emptyDates }
+ *
+ *   2. POST { action:'importBlockPlacement', token, studentId, previewId, decisions }
+ *      decisions = { <date key>: 'import' | 'update' | 'skip' }. Re-checks each date
+ *      against the current sheet before writing, so a stale preview can't create a
+ *      duplicate. Missing decisions default to import for new dates, skip otherwise.
+ *      Returns { success, created, updated, skipped, totalHrs, message }
+ *
+ * Legacy single-step call (old cached dashboard): importBlockPlacement with
+ * fileBase64 and no previewId runs a preview and commits it with default decisions.
  */
-function importBlockPlacement(studentId, clinicName, fileBase64, filename) {
+
+var BPI_TAG = '*BLOCK-PLACEMENT*';
+var BPI_TAG_COL = 34;          // col AI (0-based)
+var BPI_HOURS_FROM = 8;        // col I  — first hours column (0-based)
+var BPI_HOURS_TO = 21;         // col V  — last hours column (0-based, inclusive)
+var BPI_ROW_WIDTH = 35;        // cols A..AI
+var BPI_PREVIEW_TTL = 1800;    // seconds
+
+/** Step 1 — parse + classify, no writes. */
+function previewBlockPlacement(studentId, clinicName, fileBase64, filename) {
   if (!studentId) return { success: false, message: 'studentId is required.' };
   if (!fileBase64) return { success: false, message: 'No file data received.' };
 
@@ -103,122 +123,287 @@ function importBlockPlacement(studentId, clinicName, fileBase64, filename) {
   var sessSheet = ss.getSheetByName('Sessions');
   if (!sessSheet) return { success: false, message: 'Sessions tab not found — check sheet setup.' };
 
-  // Decode base64 → blob → temporary Google Sheet
+  var parsed = bpiParseUpload(fileBase64, filename);
+  if (parsed.error) return { success: false, message: parsed.error };
+
+  var items = bpiBuildItems(parsed.dates, clinicName);
+  var emptyDates = parsed.dates.length - items.rawCount;
+  items = items.list;
+  if (items.length === 0) {
+    return { success: false, message: 'No hours found in the Clinical Hours sheet (' + parsed.dates.length + ' date columns, all empty).' };
+  }
+
+  var existing = bpiReadStudentRows(sessSheet, studentId);
+  items.forEach(function (it) { bpiClassify(it, existing); });
+
+  var previewId = Utilities.getUuid();
+  var payload = JSON.stringify({ studentId: String(studentId), clinicName: clinicName || '', items: items });
+  try {
+    CacheService.getScriptCache().put('bpi:' + previewId, payload, BPI_PREVIEW_TTL);
+  } catch (e) {
+    return { success: false, message: 'File is too large to preview (' + Math.round(payload.length / 1024) + ' KB of parsed data).' };
+  }
+
+  return {
+    success: true,
+    previewId: previewId,
+    emptyDates: emptyDates,
+    dates: items.map(bpiPublicItem)
+  };
+}
+
+/** Step 2 — apply decisions. Also handles the legacy single-step call. */
+function importBlockPlacement(studentId, previewId, decisions, legacyClinicName, legacyFileBase64, legacyFilename) {
+  if (!previewId && legacyFileBase64) {
+    var pv = previewBlockPlacement(studentId, legacyClinicName, legacyFileBase64, legacyFilename);
+    if (!pv.success) return pv;
+    previewId = pv.previewId;
+    decisions = {};
+  }
+  if (!studentId) return { success: false, message: 'studentId is required.' };
+  if (!previewId) return { success: false, message: 'No preview to import — upload the file again.' };
+
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get('bpi:' + previewId);
+  if (!raw) return { success: false, message: 'This preview has expired (30 min). Upload the file again.' };
+  var preview = JSON.parse(raw);
+  if (preview.studentId !== String(studentId)) {
+    return { success: false, message: 'Preview was for a different student — upload the file again.' };
+  }
+  decisions = decisions || {};
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sessSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Sessions');
+    var existing = bpiReadStudentRows(sessSheet, studentId);
+    var takenIds = bpiAllSessionIds(sessSheet);
+    var tz = Session.getScriptTimeZone();
+
+    var toAppend = [], created = 0, updated = 0, skipped = 0, totalHrs = 0, notes = [];
+
+    preview.items.forEach(function (it) {
+      bpiClassify(it, existing); // re-check against the sheet as it is now
+      var want = decisions[it.key] || (it.status === 'new' ? 'import' : 'skip');
+
+      if (it.status === 'unchanged' || want === 'skip') { skipped++; return; }
+
+      if (it.status === 'changed' && want === 'update') {
+        var range = sessSheet.getRange(it.match.row, 1, 1, BPI_ROW_WIDTH);
+        var row = range.getValues()[0];
+        bpiFillRow(row, it, null, tz);
+        range.setValues([row]);
+        updated++; totalHrs += it.total;
+        return;
+      }
+
+      if (it.status === 'new' && want === 'import') {
+        var base = 'BLK-' + it.dateKey.replace(/-/g, '') + '-' + String(studentId).replace(/[^0-9A-Za-z]/g, '');
+        var id = base, n = 2;
+        while (takenIds[id]) id = base + '-' + (n++);
+        takenIds[id] = true;
+        var newRow = new Array(BPI_ROW_WIDTH);
+        for (var i = 0; i < BPI_ROW_WIDTH; i++) newRow[i] = '';
+        newRow[0] = new Date();
+        newRow[1] = id;
+        newRow[2] = studentId;
+        newRow[32] = false;     // AG Approved
+        newRow[BPI_TAG_COL] = BPI_TAG;
+        bpiFillRow(newRow, it, id, tz);
+        toAppend.push(newRow);
+        created++; totalHrs += it.total;
+        return;
+      }
+
+      // Decision no longer valid (e.g. a date became "changed" since the preview)
+      skipped++;
+      notes.push(it.dateKey + ' skipped — it changed since the preview');
+    });
+
+    if (toAppend.length) {
+      sessSheet.getRange(sessSheet.getLastRow() + 1, 1, toAppend.length, BPI_ROW_WIDTH).setValues(toAppend);
+    }
+    cache.remove('bpi:' + previewId);
+
+    var parts = [];
+    parts.push('Imported ' + created + ' new date' + (created !== 1 ? 's' : ''));
+    if (updated) parts.push('updated ' + updated);
+    parts.push('skipped ' + skipped);
+    return {
+      success: true,
+      created: created,
+      updated: updated,
+      skipped: skipped,
+      totalHrs: Math.round(totalHrs * 10) / 10,
+      message: parts.join(', ') + '.' + (notes.length ? ' ' + notes.join('; ') + '.' : '')
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Converts the uploaded Excel to a temp Google Sheet and parses it. */
+function bpiParseUpload(fileBase64, filename) {
   var decoded = Utilities.base64Decode(fileBase64);
   var blob = Utilities.newBlob(decoded, MimeType.MICROSOFT_EXCEL, filename || 'placement.xlsx');
   var resource = { title: '_temp_bpi_' + (filename || 'placement'), mimeType: MimeType.GOOGLE_SHEETS };
   var tempFile = Drive.Files.insert(resource, blob, { convert: true });
-  var tempBook = SpreadsheetApp.openById(tempFile.id);
-
   try {
+    var tempBook = SpreadsheetApp.openById(tempFile.id);
     var hoursSheet = bpiFindClinicalHoursSheet(tempBook);
-    if (!hoursSheet) {
-      return { success: false, message: 'Could not find a "Clinical Hours" sheet in the uploaded file.' };
-    }
-
-    var data = hoursSheet.getDataRange().getValues();
-    var parsed = bpiParseClinicalHours(data);
-
-    if (parsed.dates.length === 0) {
-      return { success: false, message: 'No date columns found in Clinical Hours sheet.' };
-    }
-
-    // Build set of already-imported block-placement dates for this student
-    var existing = sessSheet.getDataRange().getValues();
-    var alreadyImported = {};
-    for (var r = 1; r < existing.length; r++) {
-      if (existing[r][34] === '*BLOCK-PLACEMENT*' && String(existing[r][2]) === String(studentId)) {
-        var d = existing[r][3];
-        var dk = (d instanceof Date)
-          ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd')
-          : String(d).slice(0, 10);
-        alreadyImported[dk] = true;
-      }
-    }
-
-    var tz = Session.getScriptTimeZone();
-    var sessionsCreated = 0, datesSkipped = 0, totalHrs = 0;
-
-    parsed.dates.forEach(function (di) {
-      var dateKey = Utilities.formatDate(di.date, tz, 'yyyy-MM-dd');
-      if (alreadyImported[dateKey]) { datesSkipped++; return; }
-
-      var hrs = di.hours;
-      var rowTotal = 0;
-      ['Adult Diagnostic-obs','Adult Diagnostic-test',
-       'Paediatric Diagnostic-obs','Paediatric Diagnostic-test',
-       'Adult Rehabilitation-obs','Adult Rehabilitation-test',
-       'Paediatric Rehabilitation-obs','Paediatric Rehabilitation-test',
-       'Other-obs','Other-test'].forEach(function (k) { rowTotal += hrs[k] || 0; });
-      rowTotal += (di.orl || 0) + (di.slt || 0) + (di.supervision || 0) + (di.simulation || 0);
-      if (rowTotal <= 0) { datesSkipped++; return; }
-
-      var activities = [];
-      ['Adult Diagnostic','Paediatric Diagnostic','Adult Rehabilitation','Paediatric Rehabilitation','Other'].forEach(function (ct) {
-        if ((hrs[ct + '-obs'] || 0) + (hrs[ct + '-test'] || 0) > 0) activities.push(ct);
-      });
-      if (di.orl > 0)        activities.push('ORL Observation');
-      if (di.slt > 0)        activities.push('SLT Observation');
-      if (di.simulation > 0) activities.push('Simulation');
-
-      var sessionId = 'BLK-' + Utilities.formatDate(di.date, tz, 'yyyyMMdd') + '-' + studentId.replace(/[^0-9A-Za-z]/g, '');
-
-      sessSheet.appendRow([
-        new Date(),                                          // col A  Timestamp
-        sessionId,                                           // col B  SessionID
-        studentId,                                           // col C  StudentID
-        di.date,                                             // col D  Date
-        di.clinician || clinicName || '',                    // col E  Sup1
-        '',                                                  // col F  Sup2
-        di.location || clinicName || '',                     // col G  Location
-        activities.join(', '),                               // col H  Activities
-        hrs['Adult Diagnostic-obs']          || 0,           // col I
-        hrs['Adult Diagnostic-test']         || 0,           // col J
-        hrs['Paediatric Diagnostic-obs']     || 0,           // col K
-        hrs['Paediatric Diagnostic-test']    || 0,           // col L
-        hrs['Adult Rehabilitation-obs']      || 0,           // col M
-        hrs['Adult Rehabilitation-test']     || 0,           // col N
-        hrs['Paediatric Rehabilitation-obs'] || 0,           // col O
-        hrs['Paediatric Rehabilitation-test']|| 0,           // col P
-        hrs['Other-obs']                     || 0,           // col Q
-        hrs['Other-test']                    || 0,           // col R
-        di.orl        || 0,                                  // col S  ORL
-        di.slt        || 0,                                  // col T  SLT
-        di.simulation || 0,                                  // col U  Simulation
-        di.supervision|| 0,                                  // col V  Supervision
-        '',                                                  // col W  FeedbackWell
-        '',                                                  // col X  FeedbackImprove
-        '',                                                  // col Y  FeedbackGeneral
-        (di.subTypes['Adult Diagnostic']          || []).join(', '),  // col Z
-        (di.subTypes['Paediatric Diagnostic']     || []).join(', '),  // col AA
-        (di.subTypes['Adult Rehabilitation']      || []).join(', '),  // col AB
-        (di.subTypes['Paediatric Rehabilitation'] || []).join(', '),  // col AC
-        (di.subTypes['Other']                     || []).join(', '),  // col AD
-        '',                                                  // col AE  SubTypes_Simulation
-        di.mnzas || false,                                   // col AF  MNZAS
-        false,                                               // col AG  Approved
-        '',                                                  // col AH  ApprovedBy
-        '*BLOCK-PLACEMENT*'                                  // col AI  ImportTag
-      ]);
-
-      sessionsCreated++;
-      totalHrs += rowTotal;
-    });
-
-    return {
-      success: true,
-      sessionsCreated: sessionsCreated,
-      datesSkipped: datesSkipped,
-      totalHrs: Math.round(totalHrs * 10) / 10,
-      message: 'Imported ' + sessionsCreated + ' session' + (sessionsCreated !== 1 ? 's' : '') +
-               ' (' + datesSkipped + ' skipped — already imported or no hours).'
-    };
-
+    if (!hoursSheet) return { error: 'Could not find a "Clinical Hours" sheet in the uploaded file.' };
+    var parsed = bpiParseClinicalHours(hoursSheet.getDataRange().getValues());
+    if (parsed.dates.length === 0) return { error: 'No date columns found in Clinical Hours sheet.' };
+    return parsed;
   } finally {
-    // Always clean up the temporary sheet
-    DriveApp.getFileById(tempBook.getId()).setTrashed(true);
+    DriveApp.getFileById(tempFile.id).setTrashed(true);
   }
 }
+
+/**
+ * Turns parsed date columns into serialisable items, one per date + clinic.
+ * Two columns in the file with the same date and clinic are merged into one.
+ * Columns with no hours are dropped.
+ */
+function bpiBuildItems(dates, clinicName) {
+  var tz = Session.getScriptTimeZone();
+  var byKey = {}, order = [], rawCount = 0;
+  dates.forEach(function (di) {
+    var vec = bpiHoursVector(di);
+    var total = vec.reduce(function (a, b) { return a + b; }, 0);
+    if (total <= 0) return;
+    rawCount++;
+    var dateKey = Utilities.formatDate(di.date, tz, 'yyyy-MM-dd');
+    var location = di.location || clinicName || '';
+    var key = dateKey + '|' + bpiNorm(location);
+    var it = byKey[key];
+    if (!it) {
+      it = byKey[key] = {
+        key: key, dateKey: dateKey, location: location, clinician: di.clinician || clinicName || '',
+        hours: vec, subTypes: {}, mnzas: !!di.mnzas
+      };
+      order.push(key);
+    } else {
+      for (var i = 0; i < vec.length; i++) it.hours[i] += vec[i];
+      if (di.clinician && it.clinician.indexOf(di.clinician) === -1) it.clinician += ' / ' + di.clinician;
+      it.mnzas = it.mnzas || !!di.mnzas;
+    }
+    Object.keys(di.subTypes).forEach(function (ct) {
+      var arr = it.subTypes[ct] = it.subTypes[ct] || [];
+      di.subTypes[ct].forEach(function (s) { if (arr.indexOf(s) === -1) arr.push(s); });
+    });
+  });
+  var list = order.map(function (k) {
+    var it = byKey[k];
+    it.hours = it.hours.map(bpiRound);
+    it.total = bpiRound(it.hours.reduce(function (a, b) { return a + b; }, 0));
+    return it;
+  });
+  return { list: list, rawCount: rawCount };
+}
+
+/** Hours in Sessions column order I..V (14 values). */
+function bpiHoursVector(di) {
+  var h = di.hours || {};
+  return [
+    h['Adult Diagnostic-obs'] || 0, h['Adult Diagnostic-test'] || 0,
+    h['Paediatric Diagnostic-obs'] || 0, h['Paediatric Diagnostic-test'] || 0,
+    h['Adult Rehabilitation-obs'] || 0, h['Adult Rehabilitation-test'] || 0,
+    h['Paediatric Rehabilitation-obs'] || 0, h['Paediatric Rehabilitation-test'] || 0,
+    h['Other-obs'] || 0, h['Other-test'] || 0,
+    di.orl || 0, di.slt || 0, di.simulation || 0, di.supervision || 0
+  ];
+}
+
+/** All Sessions rows for one student, with what classification needs. */
+function bpiReadStudentRows(sessSheet, studentId) {
+  var tz = Session.getScriptTimeZone();
+  var data = sessSheet.getDataRange().getValues();
+  var rows = [];
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][2]) !== String(studentId)) continue;
+    var d = data[r][3];
+    var dateKey = (d instanceof Date) ? Utilities.formatDate(d, tz, 'yyyy-MM-dd') : String(d).slice(0, 10);
+    var hours = [];
+    for (var c = BPI_HOURS_FROM; c <= BPI_HOURS_TO; c++) hours.push(bpiRound(parseFloat(data[r][c]) || 0));
+    rows.push({
+      row: r + 1,
+      sessionId: String(data[r][1] || ''),
+      dateKey: dateKey,
+      location: String(data[r][6] || ''),
+      supervisor: String(data[r][4] || ''),
+      isBlock: data[r][BPI_TAG_COL] === BPI_TAG,
+      hours: hours,
+      total: bpiRound(hours.reduce(function (a, b) { return a + b; }, 0))
+    });
+  }
+  return rows;
+}
+
+function bpiAllSessionIds(sessSheet) {
+  var ids = {};
+  var last = sessSheet.getLastRow();
+  if (last < 2) return ids;
+  sessSheet.getRange(2, 2, last - 1, 1).getValues().forEach(function (v) { if (v[0]) ids[String(v[0])] = true; });
+  return ids;
+}
+
+/** Sets it.status, it.match and it.overlaps against the student's existing rows. */
+function bpiClassify(it, rows) {
+  it.match = null;
+  it.overlaps = [];
+  rows.forEach(function (r) {
+    if (r.dateKey !== it.dateKey) return;
+    if (!it.match && r.isBlock && it.key === r.dateKey + '|' + bpiNorm(r.location)) { it.match = r; return; }
+    if (r.total > 0) it.overlaps.push(r);
+  });
+  if (!it.match) it.status = 'new';
+  else it.status = bpiSameHours(it.hours, it.match.hours) ? 'unchanged' : 'changed';
+}
+
+/** Writes an item's values into a Sessions row array (cols E, G, H, I–V, Z–AD, AF). */
+function bpiFillRow(row, it, sessionId, tz) {
+  var h = it.hours;
+  if (sessionId) row[3] = Utilities.parseDate(it.dateKey, tz, 'yyyy-MM-dd');
+  row[4] = sanitizeSheetText(it.clinician);
+  row[6] = sanitizeSheetText(it.location);
+  var acts = [];
+  var cts = ['Adult Diagnostic', 'Paediatric Diagnostic', 'Adult Rehabilitation', 'Paediatric Rehabilitation', 'Other'];
+  cts.forEach(function (ct, i) { if (h[i * 2] + h[i * 2 + 1] > 0) acts.push(ct); });
+  if (h[10] > 0) acts.push('ORL Observation');
+  if (h[11] > 0) acts.push('SLT Observation');
+  if (h[12] > 0) acts.push('Simulation');
+  row[7] = acts.join(', ');
+  for (var i = 0; i < h.length; i++) row[BPI_HOURS_FROM + i] = h[i];
+  cts.forEach(function (ct, i) { row[25 + i] = (it.subTypes[ct] || []).join(', '); });
+  row[31] = it.mnzas;
+}
+
+/** What the dashboard sees for one date. */
+function bpiPublicItem(it) {
+  var SOURCES = { 'SES-': 'Supervisor form', 'STU-': 'Student self-log', 'IMP-': 'Cohort import', 'BLK-': 'Block placement' };
+  return {
+    key: it.key,
+    date: it.dateKey,
+    location: it.location,
+    clinician: it.clinician,
+    total: it.total,
+    status: it.status,
+    existing: it.match ? { sessionId: it.match.sessionId, total: it.match.total } : null,
+    overlaps: it.overlaps.map(function (r) {
+      var src = SOURCES[r.sessionId.slice(0, 4)] || 'Other entry';
+      if (r.isBlock) src = 'Block placement' + (r.location ? ' — ' + r.location : '');
+      return { sessionId: r.sessionId, source: src, total: r.total, supervisor: r.supervisor };
+    })
+  };
+}
+
+function bpiSameHours(a, b) {
+  for (var i = 0; i < a.length; i++) if (Math.abs((a[i] || 0) - (b[i] || 0)) > 0.001) return false;
+  return true;
+}
+function bpiRound(n) { return Math.round(n * 100) / 100; }
+function bpiNorm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
 
 /**
  * Finds the Clinical Hours sheet in the temporary workbook,

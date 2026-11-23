@@ -33,7 +33,7 @@ var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercon
  * on one day). Returned on every response and shown in the site footer, so a
  * successful deploy can be confirmed at a glance.
  */
-var API_VERSION = '2026.11.21.6';
+var API_VERSION = '2026.11.23';
 
 /** Per-execution cache hit/miss counts, returned as `_cache` on every response for testing. */
 var _cacheStats = { hits: 0, misses: 0 };
@@ -393,7 +393,13 @@ function doPost(e) {
         break;
       case 'importBlockPlacement':
         if (auth.role !== 'supervisor') { result = { error: 'Supervisor access required' }; break; }
-        result = importBlockPlacement(body.studentId, body.clinicName, body.fileBase64, body.filename);
+        result = importBlockPlacement(body.studentId, body.previewId, body.decisions,
+          body.clinicName, body.fileBase64, body.filename);
+        break;
+      case 'previewBlockPlacement':
+        // Read-only (not in WRITE_ACTIONS) — parses the file and classifies each date
+        if (auth.role !== 'supervisor') { result = { error: 'Supervisor access required' }; break; }
+        result = previewBlockPlacement(body.studentId, body.clinicName, body.fileBase64, body.filename);
         break;
       default:
         result = { error: 'Unknown action: ' + body.action };
