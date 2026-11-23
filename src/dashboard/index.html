@@ -1202,7 +1202,7 @@ document.getElementById('dashboard').addEventListener('click',function(e){
   }
   // Student name link in hours cohort view
   var l=e.target.closest('.student-name-link[data-view="hours"]');
-  if(l){ selectStudent(l.dataset.student,'skills'); return; }
+  if(l){ selectStudent(l.dataset.student,'hours'); return; }
   // Normal student name link (skills views)
   var sk=e.target.closest('.student-name-link:not([data-view])');
   if(sk){ selectStudent(sk.dataset.student); }
