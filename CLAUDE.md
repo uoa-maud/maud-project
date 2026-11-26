@@ -134,7 +134,7 @@ See `docs/SHEET_SETUP.md` for full column specs. Tabs in order:
 
 ## Outstanding work (next session)
 
-0. **Sign-offs follow-ups**: set the `LEGACY_SIGNOFFS_FILE_ID` / `LEGACY_SIGNOFFS_COHORT` script properties and run `runLegacySignoffsImport` (`SignoffsImporter.gs`) against the uploaded 2026 workbook; test the Evaluation parser against a real *filled-in* block placement file (only the blank template has been seen — the parser assumes supervisors overwrite the `1`/`2`/`3` placeholders with initials/dates); confirm practical hours should stay out of the 250 h total.
+0. **Sign-offs follow-up**: test the Evaluation parser against a real *filled-in* block placement file (only the blank template has been seen — the parser assumes supervisors overwrite the `1`/`2`/`3` placeholders with initials/dates). (2026 legacy sign-offs/practicals already imported Nov 2026. Practical hours deliberately stay out of clinical hours — they were already logged in Sessions where appropriate.)
 
 1. **Drive folder** (`Code.gs`): Create per-student Drive folder with restricted sharing; save PDF there on submission.
 
