@@ -129,15 +129,24 @@ function previewBlockPlacement(studentId, clinicName, fileBase64, filename) {
   var items = bpiBuildItems(parsed.dates, clinicName);
   var emptyDates = parsed.dates.length - items.rawCount;
   items = items.list;
-  if (items.length === 0) {
+  var evalSkills = parsed.evaluation || [];
+  if (items.length === 0 && !evalSkills.length) {
     return { success: false, message: 'No hours found in the Clinical Hours sheet (' + parsed.dates.length + ' date columns, all empty).' };
   }
 
   var existing = bpiReadStudentRows(sessSheet, studentId);
   items.forEach(function (it) { bpiClassify(it, existing); });
 
+  // Evaluation Part 1 → sign-offs (Signoffs.gs). Source tags the clinic so a re-import is recognised.
+  var soLocation = clinicName || (items[0] && items[0].location) || '';
+  var soSource = 'BLK:' + (soLocation || 'Block placement');
+  var soDate = items.length ? items[items.length - 1].dateKey
+    : Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var signoffs = evalSkills.length ? soMatchPlacementSkills(studentId, evalSkills, soSource) : [];
+
   var previewId = Utilities.getUuid();
-  var payload = JSON.stringify({ studentId: String(studentId), clinicName: clinicName || '', items: items });
+  var payload = JSON.stringify({ studentId: String(studentId), clinicName: clinicName || '', items: items,
+    signoffs: signoffs, soSource: soSource, soLocation: soLocation, soDate: soDate });
   try {
     CacheService.getScriptCache().put('bpi:' + previewId, payload, BPI_PREVIEW_TTL);
   } catch (e) {
@@ -148,12 +157,14 @@ function previewBlockPlacement(studentId, clinicName, fileBase64, filename) {
     success: true,
     previewId: previewId,
     emptyDates: emptyDates,
-    dates: items.map(bpiPublicItem)
+    dates: items.map(bpiPublicItem),
+    signoffs: signoffs,
+    signoffDate: soDate
   };
 }
 
 /** Step 2 — apply decisions. Also handles the legacy single-step call. */
-function importBlockPlacement(studentId, previewId, decisions, legacyClinicName, legacyFileBase64, legacyFilename) {
+function importBlockPlacement(studentId, previewId, decisions, legacyClinicName, legacyFileBase64, legacyFilename, signoffChoices, auth) {
   if (!previewId && legacyFileBase64) {
     var pv = previewBlockPlacement(studentId, legacyClinicName, legacyFileBase64, legacyFilename);
     if (!pv.success) return pv;
@@ -223,17 +234,24 @@ function importBlockPlacement(studentId, previewId, decisions, legacyClinicName,
     if (toAppend.length) {
       sessSheet.getRange(sessSheet.getLastRow() + 1, 1, toAppend.length, BPI_ROW_WIDTH).setValues(toAppend);
     }
+    var signoffsAdded = 0;
+    if (preview.signoffs && preview.signoffs.length) {
+      signoffsAdded = soImportPlacementSignoffs(studentId, preview.signoffs, signoffChoices,
+        preview.soSource, preview.soLocation, preview.soDate, auth || {});
+    }
     cache.remove('bpi:' + previewId);
 
     var parts = [];
     parts.push('Imported ' + created + ' new date' + (created !== 1 ? 's' : ''));
     if (updated) parts.push('updated ' + updated);
     parts.push('skipped ' + skipped);
+    if (preview.signoffs && preview.signoffs.length) parts.push(signoffsAdded + ' sign-off' + (signoffsAdded !== 1 ? 's' : '') + ' recorded');
     return {
       success: true,
       created: created,
       updated: updated,
       skipped: skipped,
+      signoffsAdded: signoffsAdded,
       totalHrs: Math.round(totalHrs * 10) / 10,
       message: parts.join(', ') + '.' + (notes.length ? ' ' + notes.join('; ') + '.' : '')
     };
@@ -251,9 +269,12 @@ function bpiParseUpload(fileBase64, filename) {
   try {
     var tempBook = SpreadsheetApp.openById(tempFile.id);
     var hoursSheet = bpiFindClinicalHoursSheet(tempBook);
-    if (!hoursSheet) return { error: 'Could not find a "Clinical Hours" sheet in the uploaded file.' };
-    var parsed = bpiParseClinicalHours(hoursSheet.getDataRange().getValues());
-    if (parsed.dates.length === 0) return { error: 'No date columns found in Clinical Hours sheet.' };
+    // Evaluation (Part 1 Clinical Skills) is read here, before the temp sheet is trashed
+    var evaluation = bpiParseEvaluation(tempBook);
+    if (!hoursSheet && !evaluation.length) return { error: 'Could not find a "Clinical Hours" sheet in the uploaded file.' };
+    var parsed = hoursSheet ? bpiParseClinicalHours(hoursSheet.getDataRange().getValues()) : { dates: [] };
+    parsed.evaluation = evaluation;
+    if (parsed.dates.length === 0 && !evaluation.length) return { error: 'No date columns found in Clinical Hours sheet.' };
     return parsed;
   } finally {
     DriveApp.getFileById(tempFile.id).setTrashed(true);
@@ -602,4 +623,54 @@ function bpiParseClinicalHours(data) {
   });
 
   return result;
+}
+
+/**
+ * Parses Part 1 "Clinical Skills" of the Evaluation tab. The template has one row per
+ * skill with Exposure / Emerging / Competent columns that hold the placeholders 1 / 2 / 3
+ * until a supervisor initials and dates them. The highest column holding anything other
+ * than its placeholder is the level reached; its text is kept so the supervisor can
+ * check (and correct) the parse in the preview. Shading or strike-through can't be read.
+ * Returns [{ skill, level|null, raw:{Exposure,Emerging,Competent}, date }]
+ */
+var BPI_EVAL_LEVELS = ['Exposure', 'Emerging', 'Competent'];
+
+function bpiParseEvaluation(book) {
+  var sh = book.getSheetByName('Evaluation');
+  if (!sh) return [];
+  var v = sh.getDataRange().getDisplayValues();
+  var start = -1;
+  for (var i = 0; i < v.length; i++) {
+    if (/^\s*1\.\s*clinical skills/i.test(String(v[i][0] || ''))) { start = i; break; }
+  }
+  if (start < 0) return [];
+  // Level columns from the header row; template default is C/D/E
+  var cols = [2, 3, 4];
+  BPI_EVAL_LEVELS.forEach(function (lv, j) {
+    for (var c = 0; c < v[start].length; c++) {
+      if (String(v[start][c] || '').trim().toLowerCase() === lv.toLowerCase()) { cols[j] = c; break; }
+    }
+  });
+  var out = [];
+  for (var r = start + 1; r < v.length; r++) {
+    var name = String(v[r][0] || '').replace(/\s+/g, ' ').trim();
+    if (!name || name.length > 60 || /^(at the discretion|competency should|student expectations)/i.test(name)) break;
+    var raw = {}, level = null;
+    BPI_EVAL_LEVELS.forEach(function (lv, j) {
+      var t = String(v[r][cols[j]] || '').trim();
+      if (t && t !== String(j + 1)) { raw[lv] = t; level = lv; }
+    });
+    out.push({ skill: name, level: level, raw: raw, date: level ? bpiLooseDate(raw[level]) : '' });
+  }
+  return out;
+}
+
+/** First d/m/y date in free text (NZ day-first), as yyyy-MM-dd, or ''. */
+function bpiLooseDate(t) {
+  var m = String(t || '').match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+  if (!m) return '';
+  var d = +m[1], mo = +m[2], y = +m[3];
+  if (y < 100) y += 2000;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+  return y + '-' + (mo < 10 ? '0' : '') + mo + '-' + (d < 10 ? '0' : '') + d;
 }

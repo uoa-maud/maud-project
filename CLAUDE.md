@@ -42,13 +42,17 @@ See @docs/HANDOVER_PebblePad_Session_Update.md for the latest PebblePad design d
 │   └── Objective_and_Progression_Mapping.xlsx
 ├── src/
 │   ├── dashboard/
-│   │   └── index.html           # Skills dashboard (GitHub Pages)
+│   │   ├── index.html           # Skills dashboard (GitHub Pages)
+│   │   └── signoffs.js          # Sign-offs & Practicals view, its modals, and the clinical record PDF
 │   ├── form/
 │   │   └── index.html           # Supervisor feedback form
 │   ├── student-form/
 │   │   └── index.html           # Student hours log
 │   └── apps-script/
 │       ├── Code.gs              # Main API (config, students, ratings, submit)
+│       ├── Signoffs.gs          # Clinical sign-offs + practical attendance (4 auto-created tabs)
+│       ├── SignoffsImporter.gs  # One-off migration of the legacy Excel "Clinic Sign offs" / "Practicals" tabs
+│       ├── BlockPlacementImporter.gs # Block placement hours + Evaluation sign-offs import
 │       ├── PlacementImporter.gs # Placement Excel hours importer (unused, writes to separate "Hours" tab — not part of live system)
 │       └── CohortHoursImporter.gs # One-off cohort hours migration (already run against live Sessions tab; safe to re-run, skips already-imported rows)
 ├── prototypes/                  # Reference prototypes from design phase
@@ -66,6 +70,7 @@ Three cards linking to the three tools.
 - Supervisor with a student record sees a "View as: Supervisor / Student" toggle post-auth
 - Data display (sparklines, hours gauges, skills tables) is wired to live `ratings`/`cohort_overview`/`hours` API responses, falling back to generated demo data when the API is unreachable or a cohort has no real students yet
 - Initial cohort load uses the combined `dashboard_init` endpoint (one round trip instead of three serial ones) for faster load time
+- Three-way view toggle: **Hours | Skills | Sign-offs**. Sign-offs view (`signoffs.js`): supervisors see a cohort matrix (students × sign-off items, `n/required` competent) and a practicals list (click to record attendance), plus **Manage lists** to add/edit/reorder/retire items and practicals, change required counts, or copy a list from another cohort (any supervisor). Student view shows each item's sign-off log and practical attendance; students see their own read-only. **Clinical record PDF** (student view, both roles): confirmed hours vs targets (pending flagged, not counted), sign-offs by category, practicals attended, coordinator signature block
 - After a cohort renders, supervisors get a background prefetch (`prefetchCohort`: `cohort_sessions` + `cohort_ratings`) that fills `hoursData`/`ratingsData` for every student, so switching student or Skills/Hours is instant; clicks during the prefetch wait on the in-flight promise. `ratingsLoaded[id]` marks full per-session ratings (vs the overview summary); `cohortInitCache` makes switching back to a cohort instant
 
 ### Session Feedback & Assessment (`src/form/index.html`)
@@ -128,6 +133,8 @@ See `docs/SHEET_SETUP.md` for full column specs. Tabs in order:
 6. **Ratings** — one row per skill rating per session
 
 ## Outstanding work (next session)
+
+0. **Sign-offs follow-ups**: set the `LEGACY_SIGNOFFS_FILE_ID` / `LEGACY_SIGNOFFS_COHORT` script properties and run `runLegacySignoffsImport` (`SignoffsImporter.gs`) against the uploaded 2026 workbook; test the Evaluation parser against a real *filled-in* block placement file (only the blank template has been seen — the parser assumes supervisors overwrite the `1`/`2`/`3` placeholders with initials/dates); confirm practical hours should stay out of the 250 h total.
 
 1. **Drive folder** (`Code.gs`): Create per-student Drive folder with restricted sharing; save PDF there on submission.
 
@@ -332,6 +339,10 @@ All GET endpoints accept an optional `token` query param. Role check must use PO
 - `POST {action:'deleteSession', token, sessionId}` — supervisor-only; permanently deletes a Sessions row (and any matching Ratings rows) for accidental/duplicate submissions. Dashboard requires a double-click confirm before calling this — no undo once called
 - `POST {action:'previewBlockPlacement', token, studentId, clinicName, fileBase64, filename}` — supervisor-only, read-only. Parses a Block Placement Template Excel file and classifies each date (keyed by student + date + clinic location) as `new` / `unchanged` / `changed` vs existing `*BLOCK-PLACEMENT*` rows, listing any other Sessions rows on the same date (`STU-`, `SES-`, `IMP-`, other-clinic `BLK-`) as `overlaps`. Caches the parsed file 30 min under the returned `previewId`
 - `POST {action:'importBlockPlacement', token, studentId, previewId, decisions}` — supervisor-only; applies per-date `decisions` (`import` / `update` / `skip`; default import for new, skip otherwise), re-checking against the sheet before writing. Same date at a second clinic gets a `-2` ID suffix. Legacy call with `fileBase64` and no `previewId` imports new dates only
+- `GET ?action=signoffs_cohort&cohort=2026` — supervisor-only; `{items, practicals, records, attendance}` for the cohort (also fetched by the background prefetch)
+- `GET ?action=signoffs&student=…` — student (own) or supervisor; same shape filtered to one student
+- `POST saveSignoffItems {items}` / `deleteSignoffItem {itemId}` (refused if records exist — retire instead) / `recordSignoff {record}` / `deleteSignoffRecord {recordId}` / `savePracticals {practicals}` / `deletePractical {practicalId}` (refused if attendance exists) / `setAttendance {practicalId, statuses:{studentId:'Attended'|'Absent'|'Excused'|''}}` — any supervisor
+- Block placement preview/import also parses the Evaluation tab's Part 1 Clinical Skills (Exposure/Emerging/Competent boxes; placeholder `1`/`2`/`3` = blank) and returns `signoffs` matched to the student's cohort items; the supervisor confirms/corrects levels and `importBlockPlacement` writes ticked ones (`signoffChoices`) with `Source = BLK:<clinic>`
 - `POST {action:'emailSessionPdf', token, sessionId, pdfBase64, filename}` — emails the client-generated PDF (base64) as an attachment. Recipients are resolved server-side from the Sessions/Students/Supervisors tabs (never trusts client-supplied addresses): student + IsCoordinator supervisors always; for `SES-` sessions also the submitting supervisor's preferred email (resolved from the Supervisors tab via their verified sign-in email)
 
 ## Coding conventions

@@ -10,6 +10,8 @@ Create a Google Sheet with **five tabs** in this order:
 4. `Sessions` — one row per submitted feedback session
 5. `Ratings` — one row per skill rating per session
 
+Plus `Supervisors`, and four sign-off/practical tabs (`SignoffItems`, `Signoffs`, `Practicals`, `Attendance`) that the Apps Script creates itself — see the end of this guide.
+
 ---
 
 ## Tab 1: `Config`
@@ -215,6 +217,68 @@ Example rows:
 - The dashboard uses the most recent rating per skill per milestone
 - Only rows where IsPriority or IsStrength is TRUE will have a Comment
 - Numeric ratings do **not** appear on student PDFs — only flagged skills with comments
+
+---
+
+## Sign-off & practicals tabs (created automatically)
+
+`Signoffs.gs` creates these four tabs with headers the first time they're needed — no manual setup. Edit them through the dashboard's **Sign-offs** view (Manage lists / Record / attendance) rather than by hand. Dates are stored as `YYYY-MM-DD` text.
+
+### Tab: `SignoffItems` — the required sign-offs for each cohort
+
+| Column | Description |
+|--------|-------------|
+| ItemID | `SOI-…`, generated |
+| Cohort | e.g. `2026` — each cohort has its own list |
+| Category | Group heading, e.g. `Practicum – Adult`, `Year 2 – UoA Clinic` |
+| Name | e.g. `Ear Impressions` |
+| Description | Optional |
+| RequiredCount | Number of **Competent** sign-offs needed (editable any time — status is recalculated, never stored) |
+| Optional | TRUE = nice to have, not counted in "compulsory done" |
+| SortOrder | Display order |
+| Active | FALSE = retired (hidden; existing records kept) |
+| PlacementMatch | Comma-separated skill names in the block placement Evaluation tab that fill this item (the Name always matches too) |
+
+### Tab: `Signoffs` — one row per sign-off given
+
+| Column | Description |
+|--------|-------------|
+| RecordID | `SGN-…` |
+| ItemID | Links to SignoffItems |
+| StudentID | |
+| Date | |
+| Level | `Exposure`, `Emerging` or `Competent` — only Competent counts towards RequiredCount |
+| SignedBy | Supervisor name / initials (for imports, the text written in the Evaluation box) |
+| Location | Clinic |
+| Source | `MANUAL`, `BLK:<clinic>` (block placement import) or `LEGACY` (Excel migration) |
+| Notes | |
+| RecordedBy | Sign-in email of whoever recorded it |
+| Timestamp | |
+
+### Tab: `Practicals`
+
+| Column | Description |
+|--------|-------------|
+| PracticalID | `PRC-…` |
+| Cohort | |
+| Date | |
+| Title | e.g. `702 AC Prac` |
+| Hours | Practical hours — kept separate, **not** added to clinical hours |
+| Facilitator | |
+| Compulsory | TRUE/FALSE |
+| SortOrder | Tie-break within a date |
+| Active | FALSE = retired |
+
+### Tab: `Attendance` — one row per practical + student
+
+| Column | Description |
+|--------|-------------|
+| PracticalID | Links to Practicals |
+| StudentID | |
+| Status | `Attended`, `Absent` or `Excused` (no row = not recorded) |
+| Note | |
+| RecordedBy | |
+| Timestamp | |
 
 ---
 

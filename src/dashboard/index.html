@@ -109,6 +109,58 @@ select{font-size:calc(var(--font-scale,1)*13px);padding:6px 28px 6px 10px;border
 .hrs-mini{font-size:calc(var(--font-scale,1)*11px);color:var(--text-muted)}
 .hrs-bar-wrap{height:6px;background:var(--gray-bg);border-radius:3px;margin-top:3px;overflow:hidden}
 .hrs-bar{height:6px;border-radius:3px;transition:width .4s}
+/* Sign-offs view (signoffs.js) */
+.so-btn{font-size:calc(var(--font-scale,1)*12px);padding:6px 14px;border-radius:var(--radius);border:0.5px solid var(--border-strong);background:var(--surface);color:var(--text-muted);cursor:pointer;font-family:var(--font);white-space:nowrap}
+.so-btn:hover{background:var(--accent-bg);color:var(--accent-text);border-color:var(--accent)}
+.so-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:500}
+.so-btn:disabled{opacity:.6;cursor:default}
+.so-x{border:none;background:transparent;color:var(--text-hint);cursor:pointer;font-size:calc(var(--font-scale,1)*12px);padding:0 4px;font-family:var(--font)}
+.so-x:hover{color:var(--red-text)}
+.so-scroll{overflow-x:auto;margin-bottom:.5rem}
+.so-matrix{border-collapse:collapse;font-size:calc(var(--font-scale,1)*12px)}
+.so-matrix th,.so-matrix td{padding:3px 3px;border-bottom:0.5px solid var(--border)}
+.so-matrix th.so-cat{font-size:calc(var(--font-scale,1)*10px);font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;border-left:0.5px solid var(--border);text-align:center}
+.so-matrix th.so-vert{vertical-align:bottom;height:120px;font-weight:400;color:var(--text-hint);font-size:calc(var(--font-scale,1)*10px)}
+.so-matrix th.so-vert span{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;display:inline-block;max-height:115px;overflow:hidden;text-overflow:ellipsis}
+.so-matrix .so-sticky{position:sticky;left:0;background:var(--bg);z-index:1;padding-right:10px;max-width:180px}
+.so-matrix tr:nth-child(even) td{background:var(--gray-bg)}
+.so-cell{cursor:pointer;background:var(--gray-bg);color:var(--text-hint)}
+.so-matrix tr:nth-child(even) .so-cell.none{background:var(--surface)}
+.so-cell.opt.none{border:0.5px dashed var(--border)}
+.so-item{padding:8px;border-bottom:0.5px solid var(--border)}
+.so-item.retired{opacity:.55}
+.so-item-head{display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap}
+.so-item-head>div:first-child{flex:1;min-width:180px}
+.so-item-name{font-size:calc(var(--font-scale,1)*13px);color:var(--text)}
+.so-item-desc{font-size:calc(var(--font-scale,1)*11px);color:var(--text-hint)}
+.so-item-prog{display:flex;align-items:center;gap:8px}
+.so-item-prog .hrs-bar-wrap{margin-top:0}
+.so-tag{font-size:calc(var(--font-scale,1)*10px);padding:1px 6px;border-radius:4px;background:var(--gray-bg);color:var(--text-muted)}
+.so-log{margin:6px 0 0 4px;font-size:calc(var(--font-scale,1)*11px);color:var(--text-muted)}
+.so-log-row{padding:2px 0}
+.so-lvl{display:inline-block;min-width:66px;font-size:calc(var(--font-scale,1)*10px);padding:1px 6px;border-radius:4px;text-align:center}
+.so-lvl-Competent{background:var(--green-bg);color:var(--green-text)}
+.so-lvl-Emerging{background:var(--amber-bg);color:var(--amber-text)}
+.so-lvl-Exposure{background:var(--gray-bg);color:var(--text-muted)}
+.so-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:20px}
+.so-dialog{background:var(--surface);border-radius:12px;padding:24px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
+.so-h2{font-size:calc(var(--font-scale,1)*16px);font-weight:600;margin:0;color:var(--text)}
+.so-hint{font-size:calc(var(--font-scale,1)*12px);color:var(--text-muted);margin:0 0 10px}
+.so-status{margin-top:14px;padding:10px 12px;border-radius:var(--radius);font-size:calc(var(--font-scale,1)*12px)}
+.so-field{margin-bottom:12px}
+.so-field label{font-size:calc(var(--font-scale,1)*11px);color:var(--text-hint);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+.so-input,.so-mgr input:not([type=checkbox]){width:100%;padding:6px 9px;font-size:calc(var(--font-scale,1)*13px);border:0.5px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:var(--font)}
+.so-mgr{border-collapse:collapse;width:100%;font-size:calc(var(--font-scale,1)*12px)}
+.so-mgr th{font-size:calc(var(--font-scale,1)*10px);font-weight:500;color:var(--text-hint);text-transform:uppercase;letter-spacing:.4px;padding:4px;text-align:left;white-space:nowrap}
+.so-mgr td{padding:3px 4px;border-bottom:0.5px solid var(--border)}
+.so-mgr tr.retired td{opacity:.5}
+.so-ord button{border:none;background:transparent;color:var(--text-hint);cursor:pointer;font-size:9px;display:block;line-height:1.1}
+.so-att-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:0.5px solid var(--border);font-size:calc(var(--font-scale,1)*13px);gap:8px}
+.so-seg{display:inline-flex;background:var(--gray-bg);border-radius:var(--radius);padding:2px;gap:1px}
+.so-seg button{border:none;background:transparent;padding:4px 10px;border-radius:5px;font-size:calc(var(--font-scale,1)*11px);cursor:pointer;color:var(--text-muted);font-family:var(--font)}
+.so-seg button.on-Attended{background:var(--green-bg);color:var(--green-text);font-weight:500}
+.so-seg button.on-Absent{background:var(--red-bg);color:var(--red-text);font-weight:500}
+.so-seg button.on-Excused{background:var(--amber-bg);color:var(--amber-text);font-weight:500}
 </style>
 </head>
 <body>
@@ -154,7 +206,11 @@ select{font-size:calc(var(--font-scale,1)*13px);padding:6px 28px 6px 10px;border
     </select>
   </div>
   <div class="control-group" style="justify-content:flex-end">
-    <button class="view-tab" id="viewToggleBtn" style="padding:6px 16px;border:0.5px solid var(--border);border-radius:var(--radius);background:var(--surface);font-family:var(--font);cursor:pointer">Hours</button>
+    <div class="view-tabs" id="viewToggleBtn" style="margin:0">
+      <button class="view-tab" data-view="hours">Hours</button>
+      <button class="view-tab" data-view="skills">Skills</button>
+      <button class="view-tab" data-view="signoffs">Sign-offs</button>
+    </div>
   </div>
   <div class="control-group" id="viewAsGroup" style="display:none;justify-content:flex-end">
     <label style="font-size:calc(var(--font-scale,1)*11px);color:var(--text-hint);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">View as</label>
@@ -411,7 +467,7 @@ function renderClinicTabs(){
     return '<button class="clinic-tab'+(ct===currentClinic?' active':'')+'" data-clinic="'+ct+'">'+CLINIC_SHORT[ct]+'</button>';
   }).join('');
 }
-function renderViewTabs(){document.querySelectorAll('.view-tab').forEach(function(b){b.classList.toggle('active',b.dataset.view===currentView)})}
+function renderViewTabs(){document.querySelectorAll('#viewToggleBtn .view-tab').forEach(function(b){b.classList.toggle('active',b.dataset.view===currentView)})}
 
 function renderSnapshotStudent(){
   var skills=getSkillsForClinic(currentClinic);
@@ -650,6 +706,7 @@ function checkForDataChanges(){
       if(!d.dataVersion||d.dataVersion===_loadedDataVersion) return;
       _loadedDataVersion=d.dataVersion;
       cohortInitCache={}; hoursData={}; cohortSessionsData={}; cohortHoursData={}; ratingsLoaded={};
+      signoffsData={}; studentSignoffsData={};
       prefetchCohort(currentCohort);
     })
     .catch(function(){ /* offline or cold-start hiccup — try again next time */ });
@@ -663,6 +720,7 @@ function prefetchCohort(cohort){
   if(!API_URL||usingDemo||_userRole!=='supervisor') return;
   if(!cohortSessionsData[cohort]) fetchCohortSessions(cohort);
   if((studentsData[cohort]||[]).some(function(s){ return !ratingsLoaded[s.id]; })) fetchCohortRatings(cohort);
+  if(!signoffsData[cohort]) fetchCohortSignoffs(cohort);
 }
 
 function fetchCohortSessions(cohort){
@@ -1225,24 +1283,26 @@ function render(){
 
   var isIndividual = currentStudent !== '__overview';
   var isHours = currentView === 'hours';
+  var isSignoffs = currentView === 'signoffs';
 
   document.getElementById('backBtn').classList.toggle('visible', isIndividual);
 
-  // Title flips between Hours / Skills to match the active view
+  // Title follows the active view
   var titleEl = document.getElementById('pageTitle');
-  if(titleEl){ titleEl.textContent = isHours ? 'Clinical Hours Dashboard' : 'Clinical Skills Dashboard'; }
+  if(titleEl){ titleEl.textContent = isHours ? 'Clinical Hours Dashboard' : isSignoffs ? 'Clinical Sign-offs & Practicals' : 'Clinical Skills Dashboard'; }
 
-  // Toggle button: text flips between Hours / Skills
-  var vtb = document.getElementById('viewToggleBtn');
-  if(vtb){ vtb.textContent = isHours ? 'Skills' : 'Hours'; }
+  renderViewTabs();
 
   // Clinic tabs + legend + milestone only relevant for skills views
-  var showSkillsControls = !isHours;
+  var showSkillsControls = !isHours && !isSignoffs;
   document.getElementById('clinicTabs').style.display = showSkillsControls ? '' : 'none';
   document.getElementById('legendBar').style.display = showSkillsControls && !isIndividual ? '' : 'none';
   document.getElementById('milestoneSelect').parentElement.style.display = showSkillsControls ? '' : 'none';
 
-  if(isHours){
+  if(isSignoffs){
+    if(isIndividual) renderSignoffsStudent();
+    else renderSignoffsCohort();
+  } else if(isHours){
     if(isIndividual) renderHoursStudent();
     else renderHoursCohort();
   } else if(isIndividual){
@@ -1333,7 +1393,7 @@ function selectStudent(studentId, viewOverride){
   currentStudent=studentId;
   document.getElementById('studentSelect').value=studentId;
   if(viewOverride) currentView=viewOverride;
-  else if(currentView!=='hours') currentView='skills';
+  else if(currentView!=='hours' && currentView!=='signoffs') currentView='skills';
 
   // If overview, cohort sessions, or no API/demo, just render — those views load their own data
   if(studentId==='__overview'||studentId==='__cohort_sessions'||!API_URL||usingDemo){ render(); return; }
@@ -1433,12 +1493,14 @@ document.getElementById('clinicTabs').addEventListener('click',function(e){
   var t=e.target.closest('.clinic-tab'); if(!t) return;
   currentClinic=t.dataset.clinic; renderClinicTabs(); render();
 });
-document.getElementById('viewToggleBtn').addEventListener('click',function(){
-  currentView = (currentView==='hours') ? 'skills' : 'hours';
+document.getElementById('viewToggleBtn').addEventListener('click',function(e){
+  var b=e.target.closest('.view-tab'); if(!b||b.dataset.view===currentView) return;
+  currentView=b.dataset.view;
   render();
 });
 document.getElementById('backBtn').addEventListener('click',function(){
-  currentView='hours'; selectStudent('__overview');
+  if(currentView!=='signoffs') currentView='hours';
+  selectStudent('__overview');
 });
 
 /* ---- AUTH ---- */
@@ -1446,6 +1508,7 @@ const CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleuserc
 let _idToken = null;
 let _userRole = null;
 let _userStudentId = null;
+let _userName = '';
 
 function switchViewAs(mode){
   var btnSup = document.getElementById('viewAsSupervisor');
@@ -1506,6 +1569,7 @@ function handleCredentialResponse(response){
       }
       _userRole = data.role;
       _userStudentId = data.studentId || null;
+      _userName = data.name || '';
       document.getElementById('authGate').style.display='none';
       document.getElementById('appShell').style.display='block';
       renderClinicTabs();
@@ -2247,7 +2311,7 @@ function submitImportPlacement(){
       btn.disabled = false;
       btn.textContent = 'Check file';
       if(!data.success){ bpiSetStatus(data.error || data.message || 'Could not read the file.', 'error'); return; }
-      _bpiPreview = { studentId: studentId, previewId: data.previewId, dates: data.dates };
+      _bpiPreview = { studentId: studentId, previewId: data.previewId, dates: data.dates, signoffs: data.signoffs || [] };
       bpiRenderPreview(data);
     });
   };
@@ -2320,11 +2384,19 @@ function bpiRenderPreview(data){
       '<td style="' + td + '">' + action + '</td></tr>';
   });
   h += '</tbody></table>';
+  if(!dates.length) h = '<p style="' + small + ';color:var(--text-muted);margin:0 0 8px">No hours in this file — only the Evaluation sign-offs below.</p>';
+  h += bpiRenderSignoffs(data.signoffs || [], th, td, sel, small);
 
   var pv = document.getElementById('bpiPreview');
   pv.innerHTML = h;
   pv.style.display = 'block';
-  pv.querySelectorAll('select[data-bpi]').forEach(function(s){ s.addEventListener('change', bpiUpdateCommitButton); });
+  pv.querySelectorAll('select[data-bpiso][data-k="level"]').forEach(function(s){
+    s.addEventListener('change', function(){
+      var cb = pv.querySelector('input[data-bpiso="' + s.dataset.bpiso + '"]');
+      if(cb) cb.checked = !!s.value;
+    });
+  });
+  pv.querySelectorAll('select[data-bpi],[data-bpiso]').forEach(function(s){ s.addEventListener('change', bpiUpdateCommitButton); });
   document.getElementById('bpiForm').style.display = 'none';
   document.getElementById('bpiDialog').style.width = 'min(820px,94vw)';
   document.getElementById('bpiStatus').style.display = 'none';
@@ -2341,11 +2413,50 @@ function bpiDecisions(){
 }
 
 function bpiUpdateCommitButton(){
-  var dec = bpiDecisions(), n = 0;
+  var dec = bpiDecisions(), n = 0, so = 0;
   Object.keys(dec).forEach(function(k){ if(dec[k] !== 'skip') n++; });
+  var ch = bpiSignoffChoices();
+  Object.keys(ch).forEach(function(k){ if(ch[k].import) so++; });
   var btn = document.getElementById('bpiSubmitBtn');
-  btn.disabled = n === 0;
-  btn.textContent = n ? 'Import ' + n + ' date' + (n !== 1 ? 's' : '') : 'Nothing to import';
+  btn.disabled = n === 0 && so === 0;
+  var parts = [];
+  if(n) parts.push(n + ' date' + (n !== 1 ? 's' : ''));
+  if(so) parts.push(so + ' sign-off' + (so !== 1 ? 's' : ''));
+  btn.textContent = parts.length ? 'Import ' + parts.join(' + ') : 'Nothing to import';
+}
+
+/* Evaluation (Part 1 Clinical Skills) rows from the placement file. The parse is a best
+   guess from the cell text, so the supervisor can correct the level before importing. */
+function bpiRenderSignoffs(list, th, td, sel, small){
+  if(!list.length) return '';
+  var h = '<h3 style="font-size:calc(var(--font-scale,1)*13px);font-weight:600;margin:18px 0 4px;color:var(--text)">Clinical skills sign-offs (Evaluation tab)</h3>' +
+    '<p style="' + small + ';color:var(--text-muted);margin:0 0 6px">Highest box filled in on the Evaluation tab. Check the level against what the supervisor wrote — only <b>Competent</b> counts towards a sign-off.</p>' +
+    '<table style="width:100%;border-collapse:collapse"><thead><tr><th style="' + th + '">Import</th><th style="' + th + '">Skill in file</th><th style="' + th + '">Matches sign-off</th>' +
+    '<th style="' + th + '">What the file says</th><th style="' + th + '">Level</th></tr></thead><tbody>';
+  list.forEach(function(s){
+    var raw = ['Exposure','Emerging','Competent'].filter(function(l){ return s.raw && s.raw[l]; })
+      .map(function(l){ return l + ': ' + bpiEsc(s.raw[l]); }).join('<br>') || '<span style="color:var(--text-hint)">blank</span>';
+    var match = s.itemId ? bpiEsc(s.itemName) + (s.status === 'exists' ? '<div style="color:var(--text-hint)">already imported at this level</div>' : '')
+      : '<span style="color:var(--amber-text,#8a5a00)">Not on this cohort&#39;s list</span>';
+    var on = s.itemId && s.level && s.status === 'new';
+    var lv = '<select data-bpiso="' + bpiEsc(s.key) + '" data-k="level" style="' + sel + '"' + (s.itemId ? '' : ' disabled') + '><option value="">—</option>' +
+      ['Exposure','Emerging','Competent'].map(function(l){ return '<option' + (l === s.level ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select>';
+    h += '<tr' + (s.itemId ? '' : ' style="opacity:.6"') + '><td style="' + td + '"><input type="checkbox" data-bpiso="' + bpiEsc(s.key) + '" data-k="import"' + (on ? ' checked' : '') + (s.itemId ? '' : ' disabled') + '></td>' +
+      '<td style="' + td + '">' + bpiEsc(s.skill) + '</td><td style="' + td + '">' + match + '</td>' +
+      '<td style="' + td + '">' + raw + '</td><td style="' + td + '">' + lv + '</td></tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+function bpiSignoffChoices(){
+  var out = {};
+  document.querySelectorAll('#bpiPreview [data-bpiso]').forEach(function(el){
+    var c = out[el.dataset.bpiso] = out[el.dataset.bpiso] || {};
+    if(el.dataset.k === 'import') c.import = el.checked;
+    else c.level = el.value;
+  });
+  Object.keys(out).forEach(function(k){ if(!out[k].level) out[k].import = false; });
+  return out;
 }
 
 function bpiCommit(){
@@ -2357,7 +2468,7 @@ function bpiCommit(){
   bpiSetStatus('Saving to the Sessions tab…', 'info');
   bpiPost({
     action: 'importBlockPlacement', studentId: studentId,
-    previewId: _bpiPreview.previewId, decisions: bpiDecisions()
+    previewId: _bpiPreview.previewId, decisions: bpiDecisions(), signoffChoices: bpiSignoffChoices()
   }, function(data){
     back.disabled = false;
     if(!data.success){
@@ -2367,12 +2478,13 @@ function bpiCommit(){
       return;
     }
     bpiSetStatus(data.message + ' Hours written: ' + data.totalHrs + ' hrs.', 'success');
+    if(data.signoffsAdded){ signoffsData = {}; studentSignoffsData = {}; }
     // Done — only Close/Back remain, so the same preview can't be committed twice
     _bpiPreview = null;
     btn.style.display = 'none';
     back.style.display = 'none';
     document.getElementById('bpiCancelBtn').textContent = 'Close';
-    document.querySelectorAll('#bpiPreview select').forEach(function(s){ s.disabled = true; });
+    document.querySelectorAll('#bpiPreview select,#bpiPreview input').forEach(function(s){ s.disabled = true; });
     // Reload cached session data so the tables reflect the import
     cohortSessionsData = {};
     delete hoursData[studentId]; // seeded by the cohort prefetch — refetch to include the import
@@ -2393,6 +2505,7 @@ document.getElementById('sessionDetailOverlay').addEventListener('click', functi
   if(e.target === this) closeSessionDetailModal();
 });
 </script>
+<script src="signoffs.js"></script>
 <script src="../../version.js" defer></script>
 </body>
 </html>

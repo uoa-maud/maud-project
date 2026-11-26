@@ -24,6 +24,7 @@
  * POST body: { action:'submitSession',      token, data:{…} } — supervisor only
  * POST body: { action:'submitStudentHours', token, data:{…} } — student only
  * POST body: { action:'approveSession',     token, sessionId, approvedBy } — supervisor only
+ * GET  ?action=signoffs_cohort&cohort=… / ?action=signoffs&student=… — sign-offs & practicals (Signoffs.gs)
  */
 
 var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercontent.com';
@@ -33,7 +34,7 @@ var CLIENT_ID = '27923847271-b8cu115ptvp7ft3dnrtl0p1mc5c5pe81.apps.googleusercon
  * on one day). Returned on every response and shown in the site footer, so a
  * successful deploy can be confirmed at a glance.
  */
-var API_VERSION = '2026.11.23';
+var API_VERSION = '2026.11.27';
 
 /** Per-execution cache hit/miss counts, returned as `_cache` on every response for testing. */
 var _cacheStats = { hits: 0, misses: 0 };
@@ -311,6 +312,15 @@ function doGet(e) {
         if (auth.role !== 'supervisor') result = { error: 'Supervisor access required' };
         else result = getDashboardInit(e.parameter.cohort);
       }
+      else if (action === 'signoffs_cohort') {
+        if (auth.role !== 'supervisor') result = { error: 'Supervisor access required' };
+        else result = getCohortSignoffs(e.parameter.cohort);
+      }
+      else if (action === 'signoffs') {
+        var reqStudent = e.parameter.student;
+        if (auth.role === 'student' && auth.studentId !== reqStudent) result = { error: 'Unauthorised' };
+        else result = getStudentSignoffs(reqStudent);
+      }
       else if (action === 'full_init') {
         if (auth.role !== 'supervisor') result = { error: 'Supervisor access required' };
         else result = getFullInit();
@@ -332,7 +342,8 @@ function doGet(e) {
  * Handles POST requests. Content-Type must be text/plain (avoids CORS preflight).
  */
 var WRITE_ACTIONS = ['submitSession', 'submitStudentHours', 'approveSession', 'deleteSession',
-  'updateSessionFields', 'importBlockPlacement'];
+  'updateSessionFields', 'importBlockPlacement', 'saveSignoffItems', 'deleteSignoffItem',
+  'recordSignoff', 'deleteSignoffRecord', 'savePracticals', 'deletePractical', 'setAttendance'];
 
 function doPost(e) {
   var result, body;
@@ -366,6 +377,7 @@ function doPost(e) {
         var cohortHours = fullInit.cohort ? getCohortHours(fullInit.cohort) : { students: [] };
         result = {
           role: 'supervisor',
+          name: auth.name || '',
           studentId: auth.studentId,
           cohorts: fullInit.cohorts,
           skills: fullInit.skills,
@@ -394,12 +406,29 @@ function doPost(e) {
       case 'importBlockPlacement':
         if (auth.role !== 'supervisor') { result = { error: 'Supervisor access required' }; break; }
         result = importBlockPlacement(body.studentId, body.previewId, body.decisions,
-          body.clinicName, body.fileBase64, body.filename);
+          body.clinicName, body.fileBase64, body.filename, body.signoffChoices, auth);
         break;
       case 'previewBlockPlacement':
         // Read-only (not in WRITE_ACTIONS) — parses the file and classifies each date
         if (auth.role !== 'supervisor') { result = { error: 'Supervisor access required' }; break; }
         result = previewBlockPlacement(body.studentId, body.clinicName, body.fileBase64, body.filename);
+        break;
+      case 'saveSignoffItems':
+      case 'deleteSignoffItem':
+      case 'recordSignoff':
+      case 'deleteSignoffRecord':
+      case 'savePracticals':
+      case 'deletePractical':
+      case 'setAttendance':
+        // Sign-offs & practicals (Signoffs.gs) — any supervisor may manage and record
+        if (auth.role !== 'supervisor') { result = { error: 'Supervisor access required' }; break; }
+        if (body.action === 'saveSignoffItems') result = saveSignoffItems(body.items);
+        else if (body.action === 'deleteSignoffItem') result = deleteSignoffItem(body.itemId);
+        else if (body.action === 'recordSignoff') result = recordSignoff(body.record, auth);
+        else if (body.action === 'deleteSignoffRecord') result = deleteSignoffRecord(body.recordId);
+        else if (body.action === 'savePracticals') result = savePracticals(body.practicals);
+        else if (body.action === 'deletePractical') result = deletePractical(body.practicalId);
+        else result = setAttendance(body.practicalId, body.statuses, auth);
         break;
       default:
         result = { error: 'Unknown action: ' + body.action };
