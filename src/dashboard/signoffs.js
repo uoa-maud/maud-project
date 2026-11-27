@@ -265,8 +265,8 @@ function renderSignoffsStudent() {
       + soCard('Compulsory sign-offs', sum.compDone + ' / ' + sum.compTotal, 'complete')
       + (sum.optTotal ? soCard('Optional sign-offs', sum.optDone + ' / ' + sum.optTotal, 'complete') : '')
       + soCard('Practicals attended', sum.pracAttended + ' / ' + sum.pracTotal, soNum(sum.pracHours) + ' h')
-      + '<div class="summary-card" style="display:flex;align-items:center;justify-content:center">'
-      + '<button class="so-btn primary" onclick="printClinicalRecordPDF()">Clinical record PDF</button></div>'
+      + (sup ? '<div class="summary-card" style="display:flex;align-items:center;justify-content:center">'
+        + '<button class="so-btn primary" onclick="printClinicalRecordPDF()">Clinical record PDF</button></div>' : '')
       + '</div>';
 
     // Active items, plus retired ones the student has records for
@@ -689,7 +689,7 @@ function soMgrSave() {
   })(0);
 }
 
-/* ===== Clinical record PDF (hours + sign-offs + practicals) ===== */
+/* ===== Clinical record PDF (hours + practicals; supervisors only) ===== */
 
 function printClinicalRecordPDF() {
   var sid = currentStudent;
@@ -751,30 +751,8 @@ function buildClinicalRecordPDF(student, sessions, so) {
     ? ' ' + pendingCount + ' session' + (pendingCount !== 1 ? 's' : '') + ' (' + soNum(tp.total) + ' h towards the total) awaiting confirmation are not included.'
     : ''), fontSize: 8.5, color: pendingCount ? AMBER : GRAY, margin: [0, 4, 0, 0] });
 
-  // --- Sign-offs ---
-  var items = so.items.filter(function (it) { return it.active || so.records.some(function (r) { return r.itemId === it.id; }); });
-  var sum = soSummary(so, student.id);
-  content.push(hdr('CLINICAL SIGN-OFFS'));
-  content.push({ text: sum.compDone + ' of ' + sum.compTotal + ' compulsory sign-offs complete' + (sum.optTotal ? '; ' + sum.optDone + ' of ' + sum.optTotal + ' optional' : '') + '.', fontSize: 10, margin: [0, 0, 0, 4] });
-  soCategories(items).forEach(function (c) {
-    var body = [[th('Skill'), th('Req.', 'center'), th('Done', 'center'), th('Sign-offs (date · level · signed by · location)'), th('Status', 'right')]];
-    c.items.forEach(function (it) {
-      var p = soProgress(it, so.records);
-      var log = p.records.map(function (r) {
-        return soFmtDate(r.date) + ' · ' + r.level + (r.signedBy ? ' · ' + r.signedBy : '') + (r.location ? ' · ' + r.location : '');
-      }).join('\n');
-      var status = p.complete ? 'Complete' : it.optional ? 'Optional' : 'Incomplete';
-      body.push([{ text: it.name + (it.optional ? ' (optional)' : '') + (it.active ? '' : ' (retired)'), fontSize: 9.5 },
-        { text: String(p.req), fontSize: 9.5, alignment: 'center' }, { text: String(p.done), fontSize: 9.5, alignment: 'center' },
-        { text: log || '—', fontSize: 8.5, color: GRAY },
-        { text: status, fontSize: 9.5, alignment: 'right', color: p.complete ? GREEN : it.optional ? GRAY : RED }]);
-    });
-    content.push({ text: c.name, bold: true, fontSize: 10, margin: [0, 6, 0, 2] });
-    content.push({ table: { headerRows: 1, dontBreakRows: true, widths: [120, 28, 30, '*', 60], body: body }, layout: tableLayout });
-  });
-  if (!items.length) content.push({ text: 'No sign-offs recorded.', fontSize: 10, color: GRAY });
-
   // --- Practicals ---
+  var sum = soSummary(so, student.id);
   var pracs = so.practicals.filter(function (p) { return p.active || sum.att[p.id]; });
   content.push(hdr('PRACTICALS & TUTORIALS'));
   if (pracs.length) {
