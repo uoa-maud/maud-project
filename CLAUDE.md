@@ -33,6 +33,9 @@ See @docs/HANDOVER_PebblePad_Session_Update.md for the latest PebblePad design d
 /
 ├── CLAUDE.md
 ├── index.html                   # Home page (navigation hub)
+├── version.js                   # Version footer + service worker registration (all four pages)
+├── manifest.webmanifest         # PWA manifest (installable web app)
+├── sw.js                        # Service worker (network-first, own origin only)
 ├── docs/                        # Specifications and reference documents
 │   ├── MAud_Project_Summary.docx
 │   ├── MAud_PebblePad_Workbook_Spec.docx
@@ -115,6 +118,12 @@ Every page shows a small footer `Site vX · API vY` (from `version.js` at the re
 
 `GET ?action=version` returns `{apiVersion, dataVersion}` without reading any sheets.
 
+## Installable web app (PWA)
+
+The site is installable (Add to Home Screen / Chrome install). `manifest.webmanifest` + `sw.js` live at the repo root so their scope covers all pages; `version.js` registers the worker; each page head links the manifest, `assets/apple-touch-icon.png` and a `theme-color`. Icons (`assets/icon-192.png`, `icon-512.png`, `apple-touch-icon.png`) are drawn from the favicon glyph on a full-bleed `#1f2a44` background (maskable-safe).
+
+`sw.js` is deliberately minimal: **network-first** for same-origin GETs only (cache used only when offline), and it never touches the Apps Script API, Google sign-in, cdnjs or POSTs — so it can't serve stale code while online and needs no cache-busting on deploy. A kill-switch version is in the file's header comment if it ever needs removing. Not done (deliberately): offline drafts/queued submissions, push notifications, caching API data. Sign-in inside the installed app (separate storage from the browser, especially iOS) still needs testing on a real iPhone.
+
 ## Caching (Apps Script)
 
 Reads are cached in `CacheService`, keyed by a `dataVersion` stored in Script Properties. Every `doPost` write, the cohort importer, every manual cell edit (`onEdit` simple trigger) and every structural change — row/column inserts, deletes, sorts, tab changes (`onSheetChange`, an installable "On change" trigger) — bumps `dataVersion`, invalidating all cached reads. TTL is 6 hours (CacheService max), only a backstop for changes no trigger sees (e.g. another script writing to the sheet). The installable trigger is **not** created by `clasp push`: run `installChangeTrigger()` once from the Apps Script editor (safe to re-run); check it exists under Triggers (⏰) in the editor sidebar. Every API response includes `_cache: {hits, misses}` for that request.
@@ -140,7 +149,7 @@ See `docs/SHEET_SETUP.md` for full column specs. Tabs in order:
 
 2. **PebblePad integration**: See `docs/HANDOVER_PebblePad_Session_Update.md`. Page 3 (Term summary) not yet built in PebblePad; several items flagged "unconfirmed" there need testing with a second account.
 
-3. **Backend migration off Google Sheets** (scheduled for the holidays, not yet started): Sheets/Apps Script backend is satisfactory but slow (Apps Script cold-starts, no indexing — every read is a full-range scan) and logs users out on long sessions. Preferred option: **Cloudflare D1 + Workers** — replace `Code.gs` with a Worker (same `doGet`/`doPost` action-routing shape, indexed SQL instead of range reads), replace the six Sheets tabs with equivalent D1 (SQLite) tables (`config`, `students`, `supervisors`, `skills`, `sessions`, `ratings`), keep the existing GIS One Tap frontend flow and `verifyToken` JWT-decode logic completely unchanged (ports near-verbatim into the Worker — no auth redesign needed). No idle/pause behavior on Cloudflare's free tier (unlike Supabase, which was also considered but pauses after 1 week inactivity). Email sending needs an external step either way (Cloudflare Email Sending API, since Workers have no `MailApp` equivalent) — only gap versus the current Apps Script setup. Data transfer is low-risk: export each Sheets tab to CSV, normalize booleans/dates, bulk-import into D1; can be done ahead of the cutover and tested in parallel before switching `API_URL` in the three frontend files. Frontend changes are limited to swapping `API_URL`/fetch endpoints if the new Worker mirrors the existing request/response shapes.
+3. ~~Backend migration off Google Sheets~~ — **decided against (Nov 2026)** after reviewing University policy; the main driver (slow student switching) is solved by the Apps Script cache + dashboard prefetch. Stay on Sheets/Apps Script.
 
 ## Auth implementation notes
 

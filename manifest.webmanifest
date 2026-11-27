@@ -1,0 +1,16 @@
+{
+  "name": "MAud Clinical Assessment",
+  "short_name": "MAud",
+  "description": "Clinical supervision, skills, hours and sign-offs for the UoA Master of Audiology.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8f7f4",
+  "theme_color": "#1f2a44",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

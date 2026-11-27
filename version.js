@@ -4,7 +4,17 @@
  * On pages that define API_URL it also shows the live Apps Script API_VERSION, and the
  * tooltip shows when the sheet data last changed (useful for checking the cache).
  */
-var SITE_VERSION = '2026.11.27.2';
+var SITE_VERSION = '2026.11.27.3';
+
+// Register the service worker (repo-root sw.js, scope = whole site) so the site is
+// installable. Resolved from this script's URL so it works from any page depth.
+(function () {
+  if (!('serviceWorker' in navigator) || !document.currentScript) return;
+  var swUrl = new URL('sw.js', document.currentScript.src);
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register(swUrl.href).catch(function () {});
+  });
+})();
 
 (function () {
   function render() {
